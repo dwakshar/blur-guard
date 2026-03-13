@@ -1,16 +1,33 @@
-import { useState } from "react";
+// src/components/blurguard/SensitivityControl.tsx
+// Sensitivity toggle — wired to background via setSensitivity prop.
+
+import type { Sensitivity } from "@/types/messages";
 
 const levels = [
-  { key: "low", label: "Low", desc: "Only blocks highly explicit content." },
-  { key: "balanced", label: "Balanced", desc: "Smart filtering for most situations." },
-  { key: "strict", label: "Strict", desc: "Aggressively blocks anything suggestive." },
-] as const;
+  {
+    key: "low" as Sensitivity,
+    label: "Low",
+    desc: "Only blocks highly explicit content.",
+  },
+  {
+    key: "balanced" as Sensitivity,
+    label: "Balanced",
+    desc: "Smart filtering for most situations.",
+  },
+  {
+    key: "strict" as Sensitivity,
+    label: "Strict",
+    desc: "Aggressively blocks anything suggestive.",
+  },
+];
 
-type Level = (typeof levels)[number]["key"];
+interface Props {
+  sensitivity: Sensitivity;
+  onChangeSensitivity: (s: Sensitivity) => void;
+}
 
-const SensitivityControl = () => {
-  const [active, setActive] = useState<Level>("balanced");
-  const activeLevel = levels.find((l) => l.key === active)!;
+const SensitivityControl = ({ sensitivity, onChangeSensitivity }: Props) => {
+  const activeLevel = levels.find((l) => l.key === sensitivity) ?? levels[1];
 
   return (
     <div className="mx-4">
@@ -22,13 +39,12 @@ const SensitivityControl = () => {
           {levels.map(({ key, label }) => (
             <button
               key={key}
-              onClick={() => setActive(key)}
+              onClick={() => onChangeSensitivity(key)}
               className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-all duration-200 ${
-                active === key
+                sensitivity === key
                   ? "bg-primary text-primary-foreground glow-pink-sm"
                   : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
+              }`}>
               {label}
             </button>
           ))}

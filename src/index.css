@@ -41,18 +41,19 @@
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
   }
 }
 
 @layer utilities {
   .glow-pink {
-    box-shadow: 0 0 20px hsl(340 100% 50% / 0.3), 0 0 40px hsl(340 100% 50% / 0.1);
+    box-shadow: 0 0 20px hsl(340 100% 50% / 0.3),
+      0 0 40px hsl(340 100% 50% / 0.1);
   }
 
   .glow-pink-sm {

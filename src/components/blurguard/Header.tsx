@@ -1,6 +1,10 @@
 import { Shield } from "lucide-react";
 
-const Header = () => {
+interface Props {
+  enabled: boolean;
+}
+
+const Header = ({ enabled }: Props) => {
   return (
     <div className="px-4 pt-5 pb-3">
       <div className="flex items-center justify-between">
@@ -13,11 +17,27 @@ const Header = () => {
             Blur<span className="text-primary">Guard</span>
           </span>
         </div>
-        <div className="flex items-center gap-1.5 rounded-full bg-success/10 border border-success/20 px-2.5 py-1">
-          <div className="h-1.5 w-1.5 rounded-full bg-success animate-pulse-glow" />
-          <span className="text-[10px] font-medium text-success">AI Active</span>
+
+        <div
+          className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors ${
+            enabled
+              ? "bg-success/10 border-success/20"
+              : "bg-muted/30 border-border"
+          }`}>
+          <div
+            className={`h-1.5 w-1.5 rounded-full ${
+              enabled ? "bg-success animate-pulse-glow" : "bg-muted-foreground"
+            }`}
+          />
+          <span
+            className={`text-[10px] font-medium ${
+              enabled ? "text-success" : "text-muted-foreground"
+            }`}>
+            {enabled ? "AI Active" : "Paused"}
+          </span>
         </div>
       </div>
+
       <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
         Bonking NSFW tabs before you see them.
       </p>
