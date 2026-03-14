@@ -1,25 +1,28 @@
 <div align="center">
 
-<img src="public/icons/icon128.png" alt="BlurGuard Logo" width="80" height="80" />
+<br/>
 
-# BlurGuard
+```
+██████╗ ██╗     ██╗   ██╗██████╗  ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗
+██╔══██╗██║     ██║   ██║██╔══██╗██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗
+██████╔╝██║     ██║   ██║██████╔╝██║  ███╗██║   ██║███████║██████╔╝██║  ██║
+██╔══██╗██║     ██║   ██║██╔══██╗██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║
+██████╔╝███████╗╚██████╔╝██║  ██║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝
+╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝
+```
 
-### AI-Powered Browser Extension for Real-Time NSFW Detection
+### **AI-Powered Browser Extension for Real-Time NSFW Detection**
 
-[![Manifest V3](https://img.shields.io/badge/Manifest-V3-FF1A6B?style=flat-square&logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![Vite](https://img.shields.io/badge/Vite-7-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
+*Bonking NSFW tabs before you see them.*
 
 <br/>
 
-**Bonking NSFW tabs before you see them.**
-
-Detects and blurs explicit images and videos on any webpage in real time —  
-using URL pattern heuristics, external moderation APIs, or a fully private  
-on-device TensorFlow.js neural network. Zero data leaves your browser unless you choose otherwise.
+[![Manifest V3](https://img.shields.io/badge/Chrome-Manifest_V3-FF1A6B?style=for-the-badge&logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![Vite](https://img.shields.io/badge/Vite-7-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)](LICENSE)
 
 <br/>
 
@@ -29,252 +32,412 @@ on-device TensorFlow.js neural network. Zero data leaves your browser unless you
 
 <br/>
 
-## ✦ What it does
+## ◈ What is BlurGuard?
 
-BlurGuard runs silently in the background of every tab. The moment an image or video is loaded — including dynamically injected content from infinite scroll, SPAs, or lazy-loading — it is scanned, classified, and blurred before it fully renders on screen.
+BlurGuard is a **Chrome browser extension** that silently watches every page you visit and blurs explicit or NSFW images and videos the moment they load — including dynamically injected content from infinite scroll, SPAs, and lazy-loading — before they fully render on your screen.
 
-- **Real-time** — scans on page load and watches for new elements via `MutationObserver`  
-- **Layout-preserving** — blur overlays wrap elements without shifting surrounding content  
-- **Click-to-reveal** — one click fades the overlay; original media is always accessible  
-- **Live popup** — scanned counts, blocked totals, and a detection feed update instantly in the extension popup as detections happen in any tab  
-- **Three sensitivity tiers** — Low / Balanced / Strict, adjustable from the popup with immediate effect across all open tabs
+No more accidental exposure. No more unsafe-for-work surprises while browsing. One install, total control.
+
+> **Three classification engines. One consistent interface. Zero latency compromise.**
+>
+> Choose between instant URL-pattern heuristics, a custom moderation API, or a fully private on-device TensorFlow.js neural network — all swappable with a single config line.
 
 <br/>
 
-## ✦ Demo
+---
 
-> _Load the extension, open any image-heavy page, and watch the popup counters climb._
+<br/>
 
-| Popup UI | Detection Feed | Blur Overlay |
+## ◈ Why BlurGuard?
+
+Most content filters work at the DNS or network layer — they block entire domains. BlurGuard is different. It operates **inside the page**, element by element, in real time.
+
+| Problem | BlurGuard's Approach |
+|---|---|
+| NSFW content appears before filters catch it | Scans on `document_idle` + watches via `MutationObserver` — nothing slips through |
+| Blurring shifts page layout | Wraps elements in dimension-preserving containers — **zero layout shift** |
+| Content filters kill legitimate browsing | Three sensitivity tiers — block only what you choose |
+| Privacy concerns with cloud classifiers | `tfjs` backend runs **entirely on your device** — no pixel ever leaves your browser |
+| You can't access accidentally revealed content | Click-to-reveal — one tap fades the overlay, original media always accessible |
+| Popup shows stale data | Background pushes `STATE_UPDATED` live — no polling, no refresh needed |
+
+<br/>
+
+---
+
+<br/>
+
+## ◈ Feature Highlights
+
+<br/>
+
+**Real-time scanning**
+Detects `<img>` and `<video>` elements the moment they appear — on load, on scroll, on DOM mutation. Uses a `WeakSet` so no element is ever processed twice and GC can reclaim anything removed from the page.
+
+**Layout-preserving overlay**
+Unlike `filter: blur()` which triggers repaints and shifts surrounding elements, BlurGuard wraps flagged elements in a `position: relative` container that mirrors every layout CSS property — margin, flex, border-radius, dimensions — and layers a `backdrop-filter` glass pane on top. The page looks identical. Content is simply covered.
+
+**Click-to-reveal**
+A single click fades the overlay to transparent with a 250ms ease transition. Click again to restore. The original media is always accessible — BlurGuard never removes content, only covers it.
+
+**Live popup dashboard**
+- Images scanned · Videos scanned · Total blocked — live counters
+- Detection feed with domain, confidence %, and relative timestamp
+- 7-bar confidence sparkline
+- Top detected domains
+- Sensitivity toggle (Low / Balanced / Strict) with immediate effect across all open tabs
+
+**Three classifier backends**
+
+```
+"pattern"  → Instant  · URL regex · No network · Zero setup
+"api"      → ~200ms   · POST to your endpoint · Per-session URL cache
+"tfjs"     → ~400ms   · TensorFlow.js + NSFW.js · Fully on-device
+```
+
+**Typed Chrome messaging**
+All three extension contexts (popup, background service worker, content script) share a single typed contract in `src/types/messages.ts`. No stringly-typed `postMessage`. No guessing at payload shapes.
+
+<br/>
+
+---
+
+<br/>
+
+## ◈ Architecture
+
+BlurGuard runs across three isolated Chrome extension contexts, connected by a fully-typed message bus:
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                       POPUP  ·  React 19 UI                          │
+│                                                                      │
+│   ┌────────┐  ┌──────────────────┐  ┌───────────────────────────┐   │
+│   │ Header │  │ ProtectionStatus │  │      DetectionFeed        │   │
+│   └────────┘  └──────────────────┘  └───────────────────────────┘   │
+│   ┌──────────────────┐  ┌──────────────┐  ┌───────────────────┐     │
+│   │ SensitivityCtrl  │  │ QuickActions │  │  SafetyInsights   │     │
+│   └──────────────────┘  └──────────────┘  └───────────────────┘     │
+│                                                                      │
+│              ↕  chrome.runtime.sendMessage / onMessage               │
+├──────────────────────────────────────────────────────────────────────┤
+│              BACKGROUND  ·  MV3 Service Worker                       │
+│                                                                      │
+│   • Owns BlurGuardState in chrome.storage.local                      │
+│   • Handles: GET_STATE · SET_ENABLED · SET_SENSITIVITY               │
+│   • REPORT_DETECTION → updates feed[] + stats → pushes STATE_UPDATED │
+│   • Broadcasts PROTECTION_TOGGLED / SENSITIVITY_CHANGED to all tabs  │
+│                                                                      │
+│              ↕  chrome.tabs.sendMessage (broadcast to all tabs)      │
+├──────────────────────────────────────────────────────────────────────┤
+│              CONTENT SCRIPT  ·  Injected into every tab              │
+│                                                                      │
+│   ┌──────────────────┐   ┌──────────────┐   ┌───────────────────┐   │
+│   │  mediaDetector   │ → │  classifier  │ → │   blurOverlay     │   │
+│   │  WeakSet scan    │   │  pattern/api │   │  DOM wrap + glass │   │
+│   │  MutationObsvr   │   │  /tfjs       │   │  click-to-reveal  │   │
+│   └──────────────────┘   └──────────────┘   └───────────────────┘   │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+> **The popup never polls.** Every state change — detection, toggle, sensitivity — triggers a `STATE_UPDATED` push from the background. The UI re-renders in real time with zero latency from polling intervals.
+
+<br/>
+
+---
+
+<br/>
+
+## ◈ Classification Backends
+
+Three interchangeable backends behind one `Classifier` interface. Swap with a single config change in `content.ts`:
+
+```typescript
+// Instant URL heuristics — zero setup, works offline
+const classifier = createClassifier({ backend: 'pattern', sensitivity: 'balanced' });
+
+// Your own moderation API — full control over the model
+const classifier = createClassifier({
+  backend: 'api',
+  sensitivity: 'strict',
+  apiConfig: { endpoint: 'https://your-api.com/moderate', apiKey: 'sk-...' }
+});
+
+// On-device neural network — no data leaves the browser
+const classifier = createClassifier({
+  backend: 'tfjs',
+  sensitivity: 'balanced',
+  tfjsConfig: { modelUrl: chrome.runtime.getURL('models/nsfwjs/') }
+});
+```
+
+### Sensitivity thresholds
+
+| Tier | Confidence threshold | Best for |
 |---|---|---|
-| Live stats — images scanned, videos scanned, total blocked | Per-detection events with domain, confidence %, and relative timestamp | Glass overlay with shield icon. Click anywhere to reveal. |
+| **Low** | ≥ 0.85 | Near-certain explicit content only |
+| **Balanced** | ≥ 0.60 | Everyday browsing — good precision/recall |
+| **Strict** | ≥ 0.35 | Flag anything with moderate probability |
 
-<br/>
+### Backend comparison
 
-## ✦ Architecture
-
-BlurGuard runs across three isolated Chrome extension contexts that communicate over a fully typed message bus:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         POPUP  (React UI)                       │
-│  Header · ProtectionStatus · DetectionFeed · SensitivityControl │
-│  QuickActions · SafetyInsights                                  │
-│                  ↕  chrome.runtime.sendMessage                  │
-├─────────────────────────────────────────────────────────────────┤
-│               BACKGROUND SERVICE WORKER  (MV3 SW)               │
-│  Owns BlurGuardState in chrome.storage.local                    │
-│  Handles: GET_STATE · SET_ENABLED · SET_SENSITIVITY             │
-│           REPORT_DETECTION → pushes STATE_UPDATED to popup      │
-│                  ↕  chrome.tabs.sendMessage (broadcast)         │
-├─────────────────────────────────────────────────────────────────┤
-│            CONTENT SCRIPT  (injected into every tab)            │
-│  Step 2: mediaDetector  →  MutationObserver + WeakSet           │
-│  Step 3: blurOverlay    →  DOM wrapper, no layout shift         │
-│  Step 4: classifier     →  pattern | api | tfjs backends        │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-The popup never polls. The background pushes a `STATE_UPDATED` message every time state changes, so the UI re-renders in real time.
-
-<br/>
-
-## ✦ Classification Backends
-
-Three interchangeable backends — swap via `createClassifier({ backend })` in `content.ts`:
-
-| Backend | Latency | How it works | Privacy |
+| | `pattern` | `api` | `tfjs` |
 |---|---|---|---|
-| `"pattern"` | Instant | URL regex matching against known NSFW patterns. Confidence scales with match density. | 🟢 Full — no network |
-| `"api"` | ~200ms | POSTs image URL to your moderation endpoint. Bearer auth, 5s timeout, per-session URL cache. | 🟡 URL leaves device |
-| `"tfjs"` | ~400ms | Lazy-loads NSFW.js neural network locally. Runs TensorFlow.js inference in-browser. | 🟢 Full — model runs on device |
-
-Sensitivity thresholds map confidence scores to blocking decisions:
-
-| Tier | Threshold | Use case |
-|---|---|---|
-| Low | ≥ 0.85 | Only near-certain explicit content |
-| Balanced | ≥ 0.60 | Smart filtering for everyday browsing |
-| Strict | ≥ 0.35 | Block anything with moderate probability |
+| Latency | Instant (sync) | ~200ms | ~400ms first run |
+| Accuracy | URL-heuristic | Depends on your model | NSFW.js neural net |
+| Privacy | Full — no network | URL leaves device | Full — runs on device |
+| Setup | None | Endpoint + optional key | Model URL |
+| Works offline | Yes | No | Yes (after model load) |
+| Caching | N/A | Per-session URL cache | Model cached after load |
 
 <br/>
 
-## ✦ Project Structure
+---
+
+<br/>
+
+## ◈ Message Protocol
+
+All three contexts share a single typed contract. No stringly-typed messages — every type is an exhaustive union, every payload is typed.
+
+```typescript
+// src/types/messages.ts — the single source of truth
+
+export type MessageType =
+  | 'GET_STATE'           // popup → background
+  | 'SET_ENABLED'         // popup → background
+  | 'SET_SENSITIVITY'     // popup → background
+  | 'REPORT_DETECTION'    // content → background
+  | 'PROTECTION_TOGGLED'  // background → all tabs (broadcast)
+  | 'SENSITIVITY_CHANGED' // background → all tabs (broadcast)
+  | 'STATE_UPDATED';      // background → popup  (push — no polling)
+```
+
+| Message | Direction | Payload |
+|---|---|---|
+| `GET_STATE` | popup → background | — · returns full `BlurGuardState` |
+| `SET_ENABLED` | popup → background | `boolean` |
+| `SET_SENSITIVITY` | popup → background | `"low" \| "balanced" \| "strict"` |
+| `REPORT_DETECTION` | content → background | `{ kind, src, confidence }` |
+| `PROTECTION_TOGGLED` | background → all tabs | `boolean` |
+| `SENSITIVITY_CHANGED` | background → all tabs | `Sensitivity` |
+| `STATE_UPDATED` | background → popup | Full `BlurGuardState` |
+
+<br/>
+
+---
+
+<br/>
+
+## ◈ Project Structure
 
 ```
 blur-guard/
+│
 ├── public/
-│   ├── manifest.json              # Chrome MV3 — declares all 3 contexts
-│   └── icons/                     # icon16.png · icon48.png · icon128.png
+│   ├── manifest.json              ← Chrome MV3 manifest · all 3 contexts declared
+│   └── icons/                     ← icon16 · icon48 · icon128
 │
 ├── src/
-│   ├── background.ts              # Service worker · state owner · storage
-│   ├── content.ts                 # Injected into every tab · detection pipeline
-│   ├── main.tsx                   # React popup entry
-│   ├── index.css                  # Tailwind v4 · custom CSS vars · glow utilities
+│   ├── background.ts              ← Service worker · state owner · push notifications
+│   ├── content.ts                 ← Injected into every tab · scan → classify → blur
+│   ├── main.tsx                   ← React 19 popup entry point
+│   ├── index.css                  ← Design tokens · glow utilities · custom animations
 │   │
 │   ├── types/
-│   │   └── messages.ts            # Shared: BlurGuardState · DetectionEvent · MessageType
+│   │   └── messages.ts            ← BlurGuardState · DetectionEvent · MessageType union
 │   │
 │   ├── lib/
-│   │   ├── mediaDetector.ts       # Step 2 · MutationObserver · WeakSet scanner
-│   │   ├── blurOverlay.ts         # Step 3 · DOM wrapper · click-to-reveal
-│   │   └── classifier.ts          # Step 4 · pattern | api | tfjs abstraction
+│   │   ├── mediaDetector.ts       ← MutationObserver + WeakSet DOM scanner
+│   │   ├── blurOverlay.ts         ← Layout-preserving wrapper · click-to-reveal
+│   │   └── classifier.ts          ← pattern | api | tfjs abstraction layer
 │   │
 │   ├── hooks/
-│   │   └── useBlurGuard.ts        # React ↔ background bridge · live STATE_UPDATED listener
+│   │   └── useBlurGuard.ts        ← React ↔ background bridge · live STATE_UPDATED
 │   │
 │   ├── pages/
-│   │   └── Index.tsx              # Popup root · wires all components to live state
+│   │   └── Index.tsx              ← Popup root · single state owner · prop distribution
 │   │
 │   └── components/
 │       ├── blurguard/
-│       │   ├── Header.tsx
-│       │   ├── ProtectionStatus.tsx   # Live image/video/blocked counters
-│       │   ├── DetectionFeed.tsx      # Real-time detection event list
-│       │   ├── SensitivityControl.tsx # Low · Balanced · Strict toggle
-│       │   ├── QuickActions.tsx       # Enable / Disable protection
-│       │   └── SafetyInsights.tsx     # Sparkline · top domains · avg confidence
-│       └── ui/                        # shadcn/ui primitives
+│       │   ├── Header.tsx             ← Logo + AI Active / Paused badge
+│       │   ├── ProtectionStatus.tsx   ← Live images · videos · blocked counters
+│       │   ├── DetectionFeed.tsx      ← Real-time event list · confidence · timestamps
+│       │   ├── SensitivityControl.tsx ← Low · Balanced · Strict toggle
+│       │   ├── QuickActions.tsx       ← Enable / Disable protection
+│       │   └── SafetyInsights.tsx     ← Sparkline · top domains · avg confidence
+│       └── ui/                        ← shadcn/ui primitives (40+ components)
 │
-├── vite.config.ts                 # Multi-entry build · flat output for Chrome
-├── tsconfig.app.json              # types: ["chrome"] · @/* path alias
-└── postcss.config.js              # @tailwindcss/postcss (Tailwind v4)
+├── vite.config.ts                 ← Multi-entry build · flat dist/ for Chrome
+├── tsconfig.app.json              ← types:["chrome"] · @/* path alias · strict
+└── postcss.config.js              ← Tailwind PostCSS integration
 ```
 
 <br/>
 
-## ✦ Getting Started
+---
+
+<br/>
+
+## ◈ Getting Started
 
 ### Prerequisites
 
 - **Node.js** ≥ 18
-- **Chrome** ≥ 120 (Manifest V3 support)
-- **VS Code** (recommended — see [Tutorial](docs/tutorial.md))
+- **Chrome** ≥ 120 (Manifest V3)
+- **VS Code** recommended
 
-### Install & Build
+### Install & build
 
 ```bash
-# 1. Clone the repo
+# 1. Clone
 git clone https://github.com/dwakshar/blur-guard.git
 cd blur-guard
 
 # 2. Install dependencies
 npm install
 
-# 3. Build the extension
+# 3. Build
 npm run build
+# → generates dist/ with background.js, content.js, index.html
 ```
 
 ### Load in Chrome
 
 ```
-1. Open chrome://extensions
-2. Enable Developer Mode  (toggle, top-right)
-3. Click "Load unpacked"
+1. Open  chrome://extensions
+2. Toggle  Developer Mode  (top-right)
+3. Click  Load unpacked
 4. Select the  dist/  folder
-5. The BlurGuard icon appears in your toolbar
+5. BlurGuard icon appears in your toolbar — you're live
 ```
 
-### Development Workflow
+### Development workflow
 
 ```bash
 # Rebuild on every file save
 npx vite build --watch
 
-# After each rebuild — refresh the extension in chrome://extensions
-# OR use the "Extensions Reloader" Chrome extension for one-click reload
+# After each rebuild, refresh the extension:
+# chrome://extensions → click ↺ on BlurGuard
 ```
 
-> **Note:** Never test the extension against the Vite dev server (`npm run dev`). The dev server uses `eval` for HMR, which violates Chrome's Content Security Policy. Always load from `dist/`.
+> **Important:** Never test by running `npm run dev`. The Vite dev server uses `eval` for HMR, which Chrome's Content Security Policy blocks. Always load from `dist/`.
 
 <br/>
 
-## ✦ Message Protocol
-
-All three contexts share a single typed contract in `src/types/messages.ts`:
-
-| Message | Direction | Payload |
-|---|---|---|
-| `GET_STATE` | popup → background | — Returns `BlurGuardState` |
-| `SET_ENABLED` | popup → background | `boolean` |
-| `SET_SENSITIVITY` | popup → background | `"low" \| "balanced" \| "strict"` |
-| `REPORT_DETECTION` | content → background | `{ kind, src, confidence }` |
-| `PROTECTION_TOGGLED` | background → all tabs | `boolean` |
-| `SENSITIVITY_CHANGED` | background → all tabs | `Sensitivity` |
-| `STATE_UPDATED` | background → popup | Full `BlurGuardState` (push, no polling) |
+---
 
 <br/>
 
-## ✦ Tech Stack
+## ◈ How the Blur Overlay Works (No Layout Shift)
 
-| Layer | Choice | Why |
+Applying `filter: blur()` directly to an image causes a repaint that can collapse or shift the surrounding layout. BlurGuard avoids this entirely:
+
+```
+Before BlurGuard:                 After BlurGuard:
+
+┌─────────────────┐               ┌─────────────────┐  ← wrapper div
+│                 │               │   <img>          │    exact same size + position
+│   <img src=X>   │      →        │                  │    as original element
+│                 │               │  ───────────────  │
+└─────────────────┘               │  🛡 BlurGuard    │  ← position:absolute, inset:0
+                                  │  backdrop-filter  │    backdrop-filter: blur(22px)
+                                  └─────────────────┘
+```
+
+**Step by step:**
+1. Capture `offsetWidth`, `offsetHeight`, and all layout CSS from the original element
+2. Create a `position: relative` wrapper with **identical** dimensions, margin, flex properties, and border-radius
+3. Swap the element for the wrapper in the DOM (no reflow)
+4. Move the element inside the wrapper (fills 100%)
+5. Append an absolutely-positioned glass pane with `backdrop-filter: blur()`
+
+Result: **zero layout shift.** Surrounding elements never move. The page structure is preserved exactly.
+
+<br/>
+
+---
+
+<br/>
+
+## ◈ Tech Stack
+
+| Layer | Choice | Reason |
 |---|---|---|
-| Extension platform | Chrome MV3 | Only supported format going forward |
+| Extension platform | Chrome MV3 | The only supported format going forward |
 | Language | TypeScript 5.8 | Shared types across 3 isolated contexts |
-| UI framework | React 19 | Popup UI + component composition |
-| Styling | Tailwind v4 | CSS variables, no config file |
-| Build tool | Vite 7 | Multi-entry rollup with custom flat output |
-| UI components | shadcn/ui | Accessible, unstyled, composable |
-| Classification | NSFW.js + TensorFlow.js | On-device inference, no API required |
-| State persistence | chrome.storage.local | Survives service worker restarts |
-| Icons | lucide-react | Consistent, tree-shakeable |
+| UI framework | React 19 | Popup UI + composition |
+| Styling | Tailwind CSS | Design tokens · utility classes · custom glow utilities |
+| Build tool | Vite 7 | Multi-entry rollup · flat output required by Chrome |
+| UI components | shadcn/ui | Accessible · unstyled · composable |
+| Classification | NSFW.js + TensorFlow.js | On-device inference — no API key required |
+| State | chrome.storage.local | Survives service worker sleep/wake cycles |
+| Icons | lucide-react | Tree-shakeable · consistent stroke width |
 
 <br/>
 
-## ✦ How the Blur Overlay Works
-
-Unlike applying `filter: blur()` directly (which repaints and can shift layout), BlurGuard:
-
-1. Captures `offsetWidth`, `offsetHeight`, and all layout CSS from the original element
-2. Inserts a `position: relative` wrapper that takes the original's place in the DOM flow, with identical dimensions, margin, flex properties, and border-radius
-3. Moves the original element inside the wrapper (filling it 100%)
-4. Adds an absolutely-positioned overlay on top with `backdrop-filter: blur()`
-
-The result: **zero layout shift**. The page looks exactly the same — content is simply covered, not removed or resized.
+---
 
 <br/>
 
-## ✦ Privacy
+## ◈ Privacy
 
-| Backend | Images sent externally | Model data |
+BlurGuard does not collect analytics, telemetry, or usage data of any kind.
+
+| Backend | What leaves your browser | Storage |
 |---|---|---|
-| `pattern` | Never | No model — regex only |
+| `pattern` | Nothing — regex runs locally | No external storage |
 | `api` | Image URLs only (not pixel data) | Your own endpoint |
-| `tfjs` | Never | Model runs entirely in-browser |
+| `tfjs` | Nothing — model runs in-browser | `chrome.storage.local` only |
 
-BlurGuard does not collect analytics, telemetry, or usage data of any kind. All state is stored locally in `chrome.storage.local`.
-
-<br/>
-
-## ✦ Contributing
-
-Pull requests are welcome. For significant changes, please open an issue first to discuss what you'd like to change.
-
-```bash
-# Run type checking
-npx tsc --noEmit
-
-# Run tests
-npm run test
-```
-
-Please ensure TypeScript passes with zero errors before submitting a PR.
+All detection history, counters, and settings are stored exclusively in `chrome.storage.local` — local to your browser profile, never synced or transmitted.
 
 <br/>
 
-## ✦ Roadmap
+---
 
-- [ ] **Allowlist** — per-domain opt-out so trusted sites are never scanned
-- [ ] **Custom model** — drop-in support for custom ONNX / TFLite models  
+<br/>
+
+## ◈ Roadmap
+
+- [ ] **Allowlist** — per-domain opt-out for trusted sites
+- [ ] **Pause timer** — "Pause for 5 minutes" with live countdown in popup
+- [ ] **Custom model** — drop-in ONNX / TFLite model support
 - [ ] **Firefox support** — port to WebExtensions API (MV2 compatible)
 - [ ] **Statistics export** — download detection history as CSV
 - [ ] **WXT migration** — replace custom Vite config with proper extension tooling
-- [ ] **Pause timer** — "Pause for 5 minutes" fully implemented with countdown
 
 <br/>
 
-## ✦ License
+---
+
+<br/>
+
+## ◈ Contributing
+
+Pull requests are welcome. For significant changes, please open an issue first.
+
+```bash
+# Type check
+npx tsc --noEmit
+
+# Lint
+npm run lint
+
+# Test
+npm run test
+```
+
+TypeScript must pass with zero errors before any PR is merged.
+
+<br/>
+
+---
+
+<br/>
+
+## ◈ License
 
 [MIT](LICENSE) © [dwakshar](https://github.com/dwakshar)
 
@@ -284,8 +447,16 @@ Please ensure TypeScript passes with zero errors before submitting a PR.
 
 <div align="center">
 
-Built with TypeScript · React · Chrome MV3 · TensorFlow.js
+<br/>
+
+Built with TypeScript · React 19 · Chrome MV3 · TensorFlow.js
+
+<br/>
 
 *Bonking NSFW tabs before you see them.*
+
+<br/>
+
+**[⭐ Star this repo](https://github.com/dwakshar/blur-guard)** if BlurGuard saved your day
 
 </div>
