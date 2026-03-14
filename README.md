@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="banner.jpg" width=100%>
+
 [![Manifest V3](https://img.shields.io/badge/Chrome-Manifest_V3-FF1A6B?style=flat-square&logo=googlechrome&logoColor=white)](#)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](#)
@@ -55,35 +57,35 @@ BlurGuard operates **inside the page**, element by element, in real time — bef
 Three isolated Chrome extension contexts connected by a fully-typed message bus. The popup never polls — every state change triggers a `STATE_UPDATED` push from the background.
 
 ```
- ┌──────────────────────────────────────────────────────────────────────────┐
- │  POPUP  ·  React 19 UI                                                   │
- │                                                                          │
- │  ┌────────┐  ┌──────────────────┐  ┌───────────────────────────────┐    │
- │  │ Header │  │ ProtectionStatus │  │        DetectionFeed          │    │
- │  └────────┘  └──────────────────┘  └───────────────────────────────┘    │
- │  ┌──────────────────┐  ┌──────────────┐  ┌───────────────────────┐      │
- │  │ SensitivityCtrl  │  │ QuickActions │  │    SafetyInsights     │      │
- │  └──────────────────┘  └──────────────┘  └───────────────────────┘      │
+ ┌────────────────────────────────────────────────────────────────────────┐
+ │  POPUP  ·  React 19 UI                                                 │
+ │                                                                        │
+ │  ┌────────┐  ┌──────────────────┐  ┌───────────────────────────────┐   │
+ │  │ Header │  │ ProtectionStatus │  │        DetectionFeed          │   │
+ │  └────────┘  └──────────────────┘  └───────────────────────────────┘   │
+ │  ┌──────────────────┐  ┌──────────────┐  ┌───────────────────────┐     │
+ │  │ SensitivityCtrl  │  │ QuickActions │  │    SafetyInsights     │     │
+ │  └──────────────────┘  └──────────────┘  └───────────────────────┘     │
  └───────────────────────────── │ ────────────────────────────────────────┘
                chrome.runtime.sendMessage / onMessage
  ┌───────────────────────────── │ ────────────────────────────────────────┐
  │  BACKGROUND  ·  MV3 Service Worker          ◄────────────────────────  │
- │                                                                         │
- │  • Owns BlurGuardState in chrome.storage.local                          │
- │  • Handles: GET_STATE · SET_ENABLED · SET_SENSITIVITY                   │
- │  • REPORT_DETECTION → updates feed[] + stats → pushes STATE_UPDATED     │
- │  • Broadcasts PROTECTION_TOGGLED / SENSITIVITY_CHANGED to all tabs      │
+ │                                                                        │
+ │  • Owns BlurGuardState in chrome.storage.local                         │
+ │  • Handles: GET_STATE · SET_ENABLED · SET_SENSITIVITY                  │
+ │  • REPORT_DETECTION → updates feed[] + stats → pushes STATE_UPDATED    │
+ │  • Broadcasts PROTECTION_TOGGLED / SENSITIVITY_CHANGED to all tabs     │
  └───────────────────────────── │ ────────────────────────────────────────┘
            chrome.tabs.sendMessage (broadcast to all tabs)
  ┌───────────────────────────── │ ────────────────────────────────────────┐
- │  CONTENT SCRIPT  ·  Injected into every tab   ◄────────────────────── │
- │                                                                         │
- │  ┌──────────────────┐   ┌──────────────┐   ┌───────────────────────┐  │
- │  │  mediaDetector   │ → │  classifier  │ → │     blurOverlay       │  │
- │  │  WeakSet scan    │   │  pattern/api │   │  DOM wrap + glass     │  │
- │  │  MutationObsvr   │   │  /tfjs       │   │  click-to-reveal      │  │
- │  └──────────────────┘   └──────────────┘   └───────────────────────┘  │
- └─────────────────────────────────────────────────────────────────────────┘
+ │  CONTENT SCRIPT  ·  Injected into every tab   ◄──────────────────────  │
+ │                                                                        │
+ │  ┌──────────────────┐   ┌──────────────┐   ┌───────────────────────┐   │
+ │  │  mediaDetector   │ → │  classifier  │ → │     blurOverlay       │   │
+ │  │  WeakSet scan    │   │  pattern/api │   │  DOM wrap + glass     │   │
+ │  │  MutationObsvr   │   │  /tfjs       │   │  click-to-reveal      │   │
+ │  └──────────────────┘   └──────────────┘   └───────────────────────┘   │
+ └────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Why chrome.storage, Not Module Variables
@@ -157,11 +159,11 @@ Applying `filter: blur()` directly to an image causes a repaint that shifts surr
 Before BlurGuard:                 After BlurGuard:
 
 ┌─────────────────┐               ┌─────────────────┐  ← wrapper div
-│                 │               │   <img>          │    exact same size + position
-│   <img src=X>   │      →        │                  │    as original element
-│                 │               │  ───────────────  │
-└─────────────────┘               │  🛡 BlurGuard    │  ← position:absolute, inset:0
-                                  │  backdrop-filter  │    backdrop-filter: blur(22px)
+│                 │               │   <img>         │    exact same size + position
+│   <img src=X>   │      →        │                 │    as original element
+│                 │               │─────────────────│
+└─────────────────┘               │  🛡 BlurGuard       ← position:absolute, inset:0
+                                  │  backdrop-filter│    backdrop-filter: blur(22px)
                                   └─────────────────┘
 ```
 
@@ -406,7 +408,7 @@ MIT — see [LICENSE](./LICENSE)
   built with  chrome.runtime  ·  typescript  ·  react 19  ·  obsessive attention to layout
 ```
 
-_If BlurGuard saved your day, a ⭐ means a lot._
+_If BlurGuard saved your day, a ⭐ means a lot:)._
 
 <br/>
 
