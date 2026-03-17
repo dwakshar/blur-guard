@@ -1,23 +1,11 @@
 // src/lib/classifier.ts
-//
-// Abstraction layer for media classification.
-// Supports three backend strategies, selected at runtime:
-//
-//   'pattern'   — zero-latency heuristic (URL/filename regex). Default fallback.
-//   'api'       — delegates to an external HTTP moderation endpoint.
-//   'tfjs'      — runs a local TensorFlow.js NSFW detection model in-browser.
-//
-// All backends return the same ClassificationResult shape so callers never
-// need to know which strategy is active.
+// Shared classifier abstraction for popup/content/background consumers.
 
+import type * as TfjsModule from "@tensorflow/tfjs";
 import type { Sensitivity } from "../types/messages";
 
-// ─── Public contract ──────────────────────────────────────────────────────────
-
 export interface ClassificationResult {
-  /** Whether the media should be treated as explicit */
   explicit: boolean;
-  /** Probability in [0, 1]. Higher = more likely explicit. */
   confidence: number;
 }
 
@@ -26,90 +14,38 @@ export type ClassifierBackend = "pattern" | "api" | "tfjs";
 export interface ClassifierOptions {
   backend: ClassifierBackend;
   sensitivity: Sensitivity;
-
-  /** Required when backend === 'api' */
   apiConfig?: ApiBackendConfig;
-
-  /** Required when backend === 'tfjs' */
   tfjsConfig?: TfjsBackendConfig;
 }
 
 export interface ApiBackendConfig {
-  /** Full URL of the moderation endpoint. POST with { imageUrl: string } */
   endpoint: string;
-  /** Bearer token or API key forwarded in Authorization header */
   apiKey?: string;
-  /**
-   * Optional: path into the JSON response that contains the adult probability.
-   * E.g. 'result.adult' or 'scores.explicit'. Defaults to 'confidence'.
-   */
   responsePath?: string;
 }
 
 export interface TfjsBackendConfig {
-  /**
-   * URL of the NSFW.js model directory (e.g. from a CDN or chrome.runtime.getURL).
-   * The classifier will dynamically import @tensorflow/tfjs and nsfwjs.
-   * Example: chrome.runtime.getURL('models/nsfwjs/')
-   */
   modelUrl: string;
-  /**
-   * Image size passed to model.classify(). Defaults to 224.
-   * Must match the size the model was trained at.
-   */
   imageSize?: number;
 }
 
-/** Classifier instance returned by createClassifier() */
 export interface Classifier {
-  /**
-   * Classify a media element.
-   * For <video>, uses the current frame (captured via canvas).
-   * Returns a zeroed result on error rather than throwing.
-   */
   classify(
     el: HTMLImageElement | HTMLVideoElement
   ): Promise<ClassificationResult>;
-
-  /** Free any held resources (TF models, etc.) */
   dispose(): void;
 }
 
-// ─── Factory ──────────────────────────────────────────────────────────────────
-
-export function createClassifier(options: ClassifierOptions): Classifier {
-  switch (options.backend) {
-    case "pattern":
-      return new PatternClassifier(options.sensitivity);
-
-    case "api":
-      if (!options.apiConfig) {
-        throw new Error('[BlurGuard] backend="api" requires apiConfig');
-      }
-      return new ApiClassifier(options.apiConfig, options.sensitivity);
-
-    case "tfjs":
-      if (!options.tfjsConfig) {
-        throw new Error('[BlurGuard] backend="tfjs" requires tfjsConfig');
-      }
-      return new TfjsClassifier(options.tfjsConfig, options.sensitivity);
-
-    default:
-      throw new Error(
-        `[BlurGuard] Unknown classifier backend: ${String(options.backend)}`
-      );
-  }
-}
-
-// ─── Shared threshold helper ──────────────────────────────────────────────────
+type NsfwPrediction = {
+  className: string;
+  probability: number;
+};
 
 const THRESHOLD: Record<Sensitivity, number> = {
   low: 0.85,
   balanced: 0.6,
   strict: 0.35,
 };
-
-// ─── Backend 1: Pattern (URL heuristic) ──────────────────────────────────────
 
 const PATTERN_SETS: Record<Sensitivity, RegExp[]> = {
   low: [/\bnsfw\b/i, /\badult\b/i, /\bxxx\b/i, /\bporn/i],
@@ -136,6 +72,40 @@ const PATTERN_SETS: Record<Sensitivity, RegExp[]> = {
   ],
 };
 
+const NSFW_WEIGHTS: Record<string, number> = {
+  Porn: 1.0,
+  Hentai: 1.0,
+  Sexy: 0.6,
+  Neutral: 0.0,
+  Drawing: 0.0,
+};
+
+type TfRuntime = typeof TfjsModule;
+type TfLayersModel = TfjsModule.LayersModel;
+type TfTensor3D = TfjsModule.Tensor3D;
+type TfTensor = TfjsModule.Tensor;
+
+const NSFW_CLASSES = ["Drawing", "Hentai", "Neutral", "Porn", "Sexy"] as const;
+
+let runtimePromise: Promise<TfRuntime> | null = null;
+
+export function createClassifier(options: ClassifierOptions): Classifier {
+  switch (options.backend) {
+    case "pattern":
+      return new PatternClassifier(options.sensitivity);
+    case "api":
+      if (!options.apiConfig) {
+        throw new Error('[BlurGuard] backend="api" requires apiConfig');
+      }
+      return new ApiClassifier(options.apiConfig, options.sensitivity);
+    case "tfjs":
+      if (!options.tfjsConfig) {
+        throw new Error('[BlurGuard] backend="tfjs" requires tfjsConfig');
+      }
+      return new TfjsClassifier(options.tfjsConfig, options.sensitivity);
+  }
+}
+
 class PatternClassifier implements Classifier {
   private sensitivity: Sensitivity;
 
@@ -149,21 +119,14 @@ class PatternClassifier implements Classifier {
     const src = resolveSrc(el);
     if (!src) return miss();
 
-    const patterns = PATTERN_SETS[this.sensitivity];
-    const matched = patterns.filter((re) => re.test(src));
-
+    const matched = PATTERN_SETS[this.sensitivity].filter((re) => re.test(src));
     if (matched.length === 0) return miss();
 
-    const raw = Math.min(0.97, 0.7 + matched.length * 0.08);
-    return hit(raw);
+    return hit(0.7 + matched.length * 0.08);
   }
 
-  dispose(): void {
-    /* nothing to free */
-  }
+  dispose(): void {}
 }
-
-// ─── Backend 2: External Moderation API ──────────────────────────────────────
 
 class ApiClassifier implements Classifier {
   private cache = new Map<string, ClassificationResult>();
@@ -180,13 +143,12 @@ class ApiClassifier implements Classifier {
   ): Promise<ClassificationResult> {
     const src = resolveSrc(el);
     if (!src) return miss();
-
     if (this.cache.has(src)) return this.cache.get(src)!;
 
     try {
       const headers: HeadersInit = { "Content-Type": "application/json" };
       if (this.config.apiKey) {
-        headers["Authorization"] = `Bearer ${this.config.apiKey}`;
+        headers.Authorization = `Bearer ${this.config.apiKey}`;
       }
 
       const response = await fetch(this.config.endpoint, {
@@ -206,16 +168,15 @@ class ApiClassifier implements Classifier {
         json,
         this.config.responsePath ?? "confidence"
       );
-      const threshold = THRESHOLD[this.sensitivity];
       const result: ClassificationResult = {
-        explicit: confidence >= threshold,
+        explicit: confidence >= THRESHOLD[this.sensitivity],
         confidence,
       };
 
       this.cache.set(src, result);
       return result;
-    } catch (err) {
-      console.warn("[BlurGuard] API classify error:", err);
+    } catch (error) {
+      console.warn("[BlurGuard] API classify error:", error);
       return miss();
     }
   }
@@ -225,26 +186,9 @@ class ApiClassifier implements Classifier {
   }
 }
 
-// ─── Backend 3: TensorFlow.js (NSFW.js) ──────────────────────────────────────
-
-const NSFW_WEIGHTS: Record<string, number> = {
-  Porn: 1.0,
-  Hentai: 1.0,
-  Sexy: 0.6,
-  Neutral: 0.0,
-  Drawing: 0.0,
-};
-
-type NsfwModel = {
-  classify(
-    el: HTMLImageElement | HTMLCanvasElement,
-    size?: number
-  ): Promise<Array<{ className: string; probability: number }>>;
-};
-
 class TfjsClassifier implements Classifier {
-  private model: NsfwModel | null = null;
-  private loading: Promise<NsfwModel> | null = null;
+  private model: TfLayersModel | null = null;
+  private loading: Promise<TfLayersModel> | null = null;
   private config: TfjsBackendConfig;
   private sensitivity: Sensitivity;
 
@@ -257,28 +201,37 @@ class TfjsClassifier implements Classifier {
     el: HTMLImageElement | HTMLVideoElement
   ): Promise<ClassificationResult> {
     try {
+      const tf = await getTfRuntime();
       const model = await this.loadModel();
       const target =
         el instanceof HTMLVideoElement ? captureVideoFrame(el) : el;
       if (!target) return miss();
 
-      const size = this.config.imageSize ?? 224;
-      const predictions = await model.classify(target, size);
+      const predictions = await classifyWithModel(
+        tf,
+        model,
+        target,
+        this.config.imageSize ?? 224
+      );
 
       let weightedSum = 0;
       let totalWeight = 0;
-      for (const { className, probability } of predictions) {
-        const w = NSFW_WEIGHTS[className] ?? 0;
-        weightedSum += probability * w;
-        totalWeight += w;
+
+      for (const prediction of predictions) {
+        const weight = NSFW_WEIGHTS[prediction.className] ?? 0;
+        weightedSum += prediction.probability * weight;
+        totalWeight += weight;
       }
 
-      const confidence = totalWeight > 0 ? weightedSum / totalWeight : 0;
-      const threshold = THRESHOLD[this.sensitivity];
+      const confidence =
+        totalWeight > 0 ? clampConfidence(weightedSum / totalWeight) : 0;
 
-      return { explicit: confidence >= threshold, confidence };
-    } catch (err) {
-      console.warn("[BlurGuard] TFJS classify error:", err);
+      return {
+        explicit: confidence >= THRESHOLD[this.sensitivity],
+        confidence,
+      };
+    } catch (error) {
+      console.warn("[BlurGuard] TFJS classify error:", error);
       return miss();
     }
   }
@@ -288,19 +241,15 @@ class TfjsClassifier implements Classifier {
     this.loading = null;
   }
 
-  private loadModel(): Promise<NsfwModel> {
+  private loadModel(): Promise<TfLayersModel> {
     if (this.model) return Promise.resolve(this.model);
 
     if (!this.loading) {
       this.loading = (async () => {
-        const [, nsfwjs] = await Promise.all([
-          import("@tensorflow/tfjs" as string),
-          import("nsfwjs" as string),
-        ]);
-
-        const model = await (
-          nsfwjs as { load: (url: string) => Promise<NsfwModel> }
-        ).load(this.config.modelUrl);
+        const tf = await getTfRuntime();
+        await tf.ready();
+        const modelUrl = normalizeModelUrl(this.config.modelUrl);
+        const model = await tf.loadLayersModel(modelUrl);
         this.model = model;
         return model;
       })();
@@ -310,18 +259,82 @@ class TfjsClassifier implements Classifier {
   }
 }
 
-// ─── Utility helpers ──────────────────────────────────────────────────────────
+async function getTfRuntime(): Promise<TfRuntime> {
+  if (!runtimePromise) {
+    runtimePromise = import("@tensorflow/tfjs");
+  }
+
+  return runtimePromise;
+}
+
+async function classifyWithModel(
+  tf: TfRuntime,
+  model: TfLayersModel,
+  el: HTMLImageElement | HTMLCanvasElement,
+  imageSize: number
+): Promise<NsfwPrediction[]> {
+  const pixels = tf.browser.fromPixels(el) as TfTensor3D;
+  const normalized = pixels.toFloat() as TfTensor3D;
+  const resized: TfTensor3D =
+    pixels.shape[0] === imageSize && pixels.shape[1] === imageSize
+        ? normalized
+      : (tf.image.resizeBilinear(
+          normalized,
+          [imageSize, imageSize],
+          true
+        ) as TfTensor3D);
+  const batched = resized.reshape([1, imageSize, imageSize, 3]);
+  const prediction = model.predict(batched);
+  const scoresTensor = (Array.isArray(prediction)
+    ? prediction[0]
+    : prediction) as TfTensor | null;
+
+  if (!scoresTensor || !("data" in scoresTensor)) {
+    pixels.dispose();
+    normalized.dispose();
+    if (resized !== normalized) {
+      resized.dispose();
+    }
+    batched.dispose();
+    throw new Error("[BlurGuard] TFJS model returned no scores");
+  }
+
+  const probabilities = Array.from(await scoresTensor.data());
+
+  pixels.dispose();
+  normalized.dispose();
+  if (resized !== normalized) {
+    resized.dispose();
+  }
+  batched.dispose();
+  scoresTensor.dispose();
+
+  return probabilities
+    .map((probability, index) => ({
+      className: NSFW_CLASSES[index] ?? `Class-${index}`,
+      probability,
+    }))
+    .sort((a, b) => b.probability - a.probability);
+}
+
+function normalizeModelUrl(modelUrl: string): string {
+  return modelUrl.endsWith("model.json") ? modelUrl : `${modelUrl}model.json`;
+}
 
 function resolveSrc(el: HTMLImageElement | HTMLVideoElement): string {
   if (el instanceof HTMLImageElement) {
     return el.currentSrc || el.src || el.getAttribute("src") || "";
   }
-  if (el.src) return el.src;
-  return el.querySelector("source")?.src || "";
+
+  return el.currentSrc || el.src || el.querySelector("source")?.src || "";
+}
+
+function clampConfidence(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.min(value, 0.99)) : 0;
 }
 
 function hit(confidence: number): ClassificationResult {
-  return { explicit: true, confidence };
+  return { explicit: true, confidence: clampConfidence(confidence) };
 }
 
 function miss(): ClassificationResult {
@@ -330,7 +343,6 @@ function miss(): ClassificationResult {
 
 function extractConfidence(json: unknown, path: string): number {
   const parts = path.split(".");
-
   let cursor: unknown = json;
 
   for (const part of parts) {
@@ -340,17 +352,15 @@ function extractConfidence(json: unknown, path: string): number {
     cursor = (cursor as Record<string, unknown>)[part];
   }
 
-  const value = Number(cursor);
-  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+  return clampConfidence(Number(cursor));
 }
 
 function captureVideoFrame(video: HTMLVideoElement): HTMLCanvasElement | null {
-  const { videoWidth: w, videoHeight: h } = video;
-  if (w === 0 || h === 0) return null;
+  if (video.videoWidth === 0 || video.videoHeight === 0) return null;
 
   const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  canvas.getContext("2d")?.drawImage(video, 0, 0, w, h);
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d")?.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
   return canvas;
 }

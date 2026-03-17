@@ -1,91 +1,151 @@
 // src/content.ts
-// BlurGuard — Content Script
-// Step 3+4: Detects media → classifies via classifier.ts → overlays via blurOverlay.ts
+// BlurGuard - Content Script
+// Detects media via mediaDetector.ts, classifies it, and applies overlays.
 
 import { applyOverlay, removeAllOverlays } from "./lib/blurOverlay";
 import { createClassifier, type Classifier } from "./lib/classifier";
-import type { BlurGuardMessage, BlurGuardState } from "./types/messages";
+import { startDetector, stopDetector } from "./lib/mediaDetector";
+import type {
+  BlurGuardMessage,
+  BlurGuardState,
+  Sensitivity,
+} from "./types/messages";
 
-// ─── State ────────────────────────────────────────────────────────────────────
+const CONTENT_SCRIPT_FLAG = "__blurGuardContentScriptLoaded__";
+
+type BlurGuardWindow = Window & {
+  [CONTENT_SCRIPT_FLAG]?: boolean;
+};
+
+const blurGuardWindow = window as BlurGuardWindow;
+
+if (!blurGuardWindow[CONTENT_SCRIPT_FLAG]) {
+  blurGuardWindow[CONTENT_SCRIPT_FLAG] = true;
+  void bootstrap();
+}
 
 let state: BlurGuardState = {
   enabled: true,
+  pausedUntil: 0,
   sensitivity: "balanced",
   feed: [],
   stats: { images: 0, videos: 0, blocked: 0 },
 };
 
 const scanned = new WeakSet<Element>();
-let classifier: Classifier = createClassifier({
-  backend: "pattern",
-  sensitivity: state.sensitivity,
-});
+const retried = new WeakSet<Element>();
 
-// ─── Bootstrap ────────────────────────────────────────────────────────────────
+let classifier: Classifier = createContentClassifier(state.sensitivity);
 
-async function init() {
+async function bootstrap() {
   const response = await sendToBackground({ type: "GET_STATE" });
   if (response) {
     state = response as BlurGuardState;
-    classifier = createClassifier({
-      backend: "pattern",
-      sensitivity: state.sensitivity,
-    });
+    classifier.dispose();
+    classifier = createContentClassifier(state.sensitivity);
   }
 
-  if (state.enabled) {
+  chrome.runtime.onMessage.addListener(handleMessage);
+
+  if (state.enabled && state.pausedUntil <= Date.now()) {
     scanAndBlur();
-    observeDOMChanges();
+    startScanning();
+  } else {
+    stopScanning();
   }
 }
 
-// ─── Message Listener ─────────────────────────────────────────────────────────
-
-chrome.runtime.onMessage.addListener((message: BlurGuardMessage) => {
+async function handleMessage(message: BlurGuardMessage) {
   switch (message.type) {
-    case "PROTECTION_TOGGLED":
-      state.enabled = message.payload as boolean;
+    case "PROTECTION_TOGGLED": {
+      const latestState = await sendToBackground({ type: "GET_STATE" });
+      if (latestState) {
+        state = latestState as BlurGuardState;
+      } else {
+        state.enabled = message.payload as boolean;
+      }
+
+      if (state.pausedUntil > Date.now()) {
+        removeAllOverlays();
+        stopScanning();
+        return;
+      }
+
       if (state.enabled) {
+        document
+          .querySelectorAll<HTMLElement>("img, video")
+          .forEach((el) => scanned.delete(el));
         scanAndBlur();
-        observeDOMChanges();
+        startScanning();
       } else {
         removeAllOverlays();
-        stopObserver();
+        stopScanning();
       }
-      break;
+      return;
+    }
 
     case "SENSITIVITY_CHANGED":
       state.sensitivity = message.payload as BlurGuardState["sensitivity"];
       classifier.dispose();
-      classifier = createClassifier({
-        backend: "pattern",
-        sensitivity: state.sensitivity,
-      });
+      classifier = createContentClassifier(state.sensitivity);
       removeAllOverlays();
       document
         .querySelectorAll<HTMLElement>("img, video")
         .forEach((el) => scanned.delete(el));
       scanAndBlur();
-      break;
+      return;
   }
-});
+}
 
-// ─── Scan & Blur ──────────────────────────────────────────────────────────────
+function startScanning(): void {
+  if (!document.body) return;
+
+  startDetector(({ element }) => {
+    void scanElement(element);
+  }, document.body);
+}
+
+function stopScanning(): void {
+  stopDetector();
+}
 
 function scanAndBlur(): void {
-  if (!state.enabled) return;
+  if (!state.enabled || state.pausedUntil > Date.now()) return;
   document
     .querySelectorAll<HTMLImageElement | HTMLVideoElement>("img, video")
-    .forEach(scanElement);
+    .forEach((el) => {
+      void scanElement(el);
+    });
 }
 
 async function scanElement(
-  el: HTMLImageElement | HTMLVideoElement
+  el: HTMLImageElement | HTMLVideoElement,
+  allowRetry = true
 ): Promise<void> {
   if (scanned.has(el)) return;
+  if (state.pausedUntil > Date.now() || !state.enabled) return;
   scanned.add(el);
 
+  const ready = await waitForMediaReady(el, 10_000);
+  if (!ready) return;
+  if (state.pausedUntil > Date.now() || !state.enabled) return;
+
   const result = await classifier.classify(el);
+
+  if (
+    allowRetry &&
+    result.confidence === 0 &&
+    hasValidSource(el) &&
+    !retried.has(el)
+  ) {
+    retried.add(el);
+    scanned.delete(el);
+    window.setTimeout(() => {
+      void scanElement(el, false);
+    }, 2_000);
+    return;
+  }
+
   if (!result.explicit) return;
 
   const wrapper = applyOverlay(el, {
@@ -94,52 +154,99 @@ async function scanElement(
     badgeLabel: "Blurred by BlurGuard",
   });
 
-  if (wrapper) {
-    sendToBackground({
-      type: "REPORT_DETECTION",
-      payload: {
-        kind: el instanceof HTMLImageElement ? "image" : "video",
-        src: el instanceof HTMLImageElement ? el.currentSrc || el.src : el.src,
-        confidence: result.confidence,
-      },
+  if (!wrapper) return;
+
+  sendToBackground({
+    type: "REPORT_DETECTION",
+    payload: {
+      kind: el instanceof HTMLImageElement ? "image" : "video",
+      src: resolveSource(el),
+      confidence: result.confidence,
+    },
+  });
+}
+
+function waitForMediaReady(
+  el: HTMLImageElement | HTMLVideoElement,
+  timeoutMs: number
+): Promise<boolean> {
+  if (el instanceof HTMLImageElement) {
+    if (el.complete && el.naturalWidth > 0) {
+      return Promise.resolve(true);
+    }
+
+    return new Promise((resolve) => {
+      const timeout = window.setTimeout(() => cleanup(false), timeoutMs);
+
+      const onLoad = () => cleanup(el.naturalWidth > 0);
+      const onError = () => cleanup(false);
+
+      const cleanup = (value: boolean) => {
+        window.clearTimeout(timeout);
+        el.removeEventListener("load", onLoad);
+        el.removeEventListener("error", onError);
+        resolve(value);
+      };
+
+      el.addEventListener("load", onLoad, { once: true });
+      el.addEventListener("error", onError, { once: true });
     });
   }
-}
 
-// ─── MutationObserver ─────────────────────────────────────────────────────────
+  if (el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    return Promise.resolve(true);
+  }
 
-let observer: MutationObserver | null = null;
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => cleanup(false), timeoutMs);
 
-function observeDOMChanges(): void {
-  if (observer) return;
-  observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      if (mutation.type !== "childList") continue;
-      for (const node of mutation.addedNodes) {
-        if (node.nodeType !== Node.ELEMENT_NODE) continue;
-        const el = node as Element;
-        if (el.matches("img, video"))
-          scanElement(el as HTMLImageElement | HTMLVideoElement);
-        el.querySelectorAll<HTMLImageElement | HTMLVideoElement>(
-          "img, video"
-        ).forEach(scanElement);
-      }
-    }
+    const onLoaded = () =>
+      cleanup(el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA);
+    const onError = () => cleanup(false);
+
+    const cleanup = (value: boolean) => {
+      window.clearTimeout(timeout);
+      el.removeEventListener("loadeddata", onLoaded);
+      el.removeEventListener("canplay", onLoaded);
+      el.removeEventListener("error", onError);
+      resolve(value);
+    };
+
+    el.addEventListener("loadeddata", onLoaded, { once: true });
+    el.addEventListener("canplay", onLoaded, { once: true });
+    el.addEventListener("error", onError, { once: true });
   });
-  observer.observe(document.body, { childList: true, subtree: true });
 }
 
-function stopObserver(): void {
-  observer?.disconnect();
-  observer = null;
+function resolveSource(el: HTMLImageElement | HTMLVideoElement): string {
+  if (el instanceof HTMLImageElement) {
+    return el.currentSrc || el.src || el.getAttribute("src") || "";
+  }
+
+  if (el.currentSrc || el.src) {
+    return el.currentSrc || el.src;
+  }
+
+  const source = el.querySelector("source");
+  return source?.src || source?.getAttribute("src") || "";
 }
 
-// ─── Utility ──────────────────────────────────────────────────────────────────
+function hasValidSource(el: HTMLImageElement | HTMLVideoElement): boolean {
+  return resolveSource(el).trim().length > 0;
+}
+
+function createContentClassifier(
+  sensitivity: Sensitivity
+): Classifier {
+  return createClassifier({
+    backend: "tfjs",
+    sensitivity,
+    tfjsConfig: {
+      modelUrl: chrome.runtime.getURL("models/mobilenet_v2/"),
+    },
+  });
+}
 
 function sendToBackground(message: BlurGuardMessage): Promise<unknown> {
   return chrome.runtime.sendMessage(message).catch(() => null);
 }
-
-// ─── Run ──────────────────────────────────────────────────────────────────────
-
-init();

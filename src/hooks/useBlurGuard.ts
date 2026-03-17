@@ -16,44 +16,12 @@ import type {
 
 // ─── Dev/preview fallback (Vite dev server, no chrome API) ───────────────────
 
-const DEV_STATE: BlurGuardState = {
+const EMPTY_STATE: BlurGuardState = {
   enabled: true,
+  pausedUntil: 0,
   sensitivity: "balanced",
-  stats: { images: 847, videos: 123, blocked: 34 },
-  feed: [
-    {
-      id: "1",
-      kind: "image",
-      src: "https://reddit.com/nsfw-img.jpg",
-      domain: "reddit.com",
-      confidence: 0.97,
-      timestamp: Date.now() - 120_000,
-    },
-    {
-      id: "2",
-      kind: "video",
-      src: "https://unknown-site.xyz/vid.mp4",
-      domain: "unknown-site.xyz",
-      confidence: 0.91,
-      timestamp: Date.now() - 480_000,
-    },
-    {
-      id: "3",
-      kind: "image",
-      src: "https://imgur.com/maybe-nsfw.jpg",
-      domain: "imgur.com",
-      confidence: 0.65,
-      timestamp: Date.now() - 840_000,
-    },
-    {
-      id: "4",
-      kind: "image",
-      src: "https://twitter.com/thumb-suspicious",
-      domain: "twitter.com",
-      confidence: 0.38,
-      timestamp: Date.now() - 1_860_000,
-    },
-  ],
+  stats: { images: 0, videos: 0, blocked: 0 },
+  feed: [],
 };
 
 // ─── Chrome API wrapper (degrades gracefully outside extension) ───────────────
@@ -69,7 +37,7 @@ function sendMessage(message: BlurGuardMessage): Promise<unknown> {
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useBlurGuard() {
-  const [state, setState] = useState<BlurGuardState>(DEV_STATE);
+  const [state, setState] = useState<BlurGuardState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
 
   // ── Initial load ──────────────────────────────────────────────────────────
@@ -100,8 +68,23 @@ export function useBlurGuard() {
 
   const setEnabled = useCallback(async (enabled: boolean) => {
     // Optimistic update so toggle feels instant
-    setState((prev) => ({ ...prev, enabled }));
+    setState((prev) => ({ ...prev, enabled, pausedUntil: enabled ? 0 : prev.pausedUntil }));
     await sendMessage({ type: "SET_ENABLED", payload: enabled });
+  }, []);
+
+  const setPaused = useCallback(async () => {
+    const pausedUntil = Date.now() + 5 * 60 * 1000;
+    setState((prev) => ({ ...prev, enabled: false, pausedUntil }));
+    await sendMessage({ type: "SET_PAUSED" });
+  }, []);
+
+  const resetStats = useCallback(async () => {
+    setState((prev) => ({
+      ...prev,
+      feed: [],
+      stats: { images: 0, videos: 0, blocked: 0 },
+    }));
+    await sendMessage({ type: "RESET_STATS" });
   }, []);
 
   const setSensitivity = useCallback(async (sensitivity: Sensitivity) => {
@@ -109,5 +92,5 @@ export function useBlurGuard() {
     await sendMessage({ type: "SET_SENSITIVITY", payload: sensitivity });
   }, []);
 
-  return { state, loading, setEnabled, setSensitivity };
+  return { state, loading, setEnabled, setPaused, resetStats, setSensitivity };
 }

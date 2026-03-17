@@ -16,8 +16,6 @@ export default defineConfig({
     emptyOutDir: true,
 
     rollupOptions: {
-      external: ["@tensorflow/tfjs", "nsfwjs"],
-
       input: {
         index: resolve(__dirname, "index.html"),
         background: resolve(__dirname, "src/background.ts"),

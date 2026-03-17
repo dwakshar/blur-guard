@@ -3,21 +3,18 @@
 
 export type Sensitivity = "low" | "balanced" | "strict";
 
-// ─── Detection event ──────────────────────────────────────────────────────────
-
 export interface DetectionEvent {
-  id: string; // unique — used as React key
+  id: string;
   kind: "image" | "video";
-  src: string; // original media URL
-  domain: string; // hostname extracted from src
-  confidence: number; // [0, 1] from classifier
-  timestamp: number; // Date.now() at detection
+  src: string;
+  domain: string;
+  confidence: number;
+  timestamp: number;
 }
-
-// ─── Persisted state ──────────────────────────────────────────────────────────
 
 export interface BlurGuardState {
   enabled: boolean;
+  pausedUntil: number;
   sensitivity: Sensitivity;
   feed: DetectionEvent[];
   stats: {
@@ -27,22 +24,63 @@ export interface BlurGuardState {
   };
 }
 
-// ─── Message types ────────────────────────────────────────────────────────────
-
-export type MessageType =
-  // popup → background
-  | "GET_STATE"
-  | "SET_ENABLED"
-  | "SET_SENSITIVITY"
-  // content → background
-  | "REPORT_DETECTION"
-  // background → content (broadcast)
-  | "PROTECTION_TOGGLED"
-  | "SENSITIVITY_CHANGED"
-  // background → popup (push update so popup stays live)
-  | "STATE_UPDATED";
-
-export interface BlurGuardMessage {
-  type: MessageType;
-  payload?: unknown;
+export interface DetectionReportPayload {
+  kind: "image" | "video";
+  src: string;
+  confidence: number;
 }
+
+export interface GetStateMessage {
+  type: "GET_STATE";
+}
+
+export interface ResetStatsMessage {
+  type: "RESET_STATS";
+}
+
+export interface SetEnabledMessage {
+  type: "SET_ENABLED";
+  payload: boolean;
+}
+
+export interface SetPausedMessage {
+  type: "SET_PAUSED";
+}
+
+export interface SetSensitivityMessage {
+  type: "SET_SENSITIVITY";
+  payload: Sensitivity;
+}
+
+export interface ReportDetectionMessage {
+  type: "REPORT_DETECTION";
+  payload: DetectionReportPayload;
+}
+
+export interface ProtectionToggledMessage {
+  type: "PROTECTION_TOGGLED";
+  payload: boolean;
+}
+
+export interface SensitivityChangedMessage {
+  type: "SENSITIVITY_CHANGED";
+  payload: Sensitivity;
+}
+
+export interface StateUpdatedMessage {
+  type: "STATE_UPDATED";
+  payload: BlurGuardState;
+}
+
+export type BlurGuardMessage =
+  | GetStateMessage
+  | ResetStatsMessage
+  | SetEnabledMessage
+  | SetPausedMessage
+  | SetSensitivityMessage
+  | ReportDetectionMessage
+  | ProtectionToggledMessage
+  | SensitivityChangedMessage
+  | StateUpdatedMessage;
+
+export type MessageType = BlurGuardMessage["type"];

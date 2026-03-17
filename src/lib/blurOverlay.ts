@@ -31,6 +31,7 @@ export interface BlurOverlayOptions {
 const STYLE_ID = "bg-overlay-styles";
 const WRAPPER_ATTR = "data-bg-wrapped"; // marks already-wrapped elements
 const REVEALED_ATTR = "data-bg-revealed"; // marks temporarily revealed overlays
+const resizeObservers = new WeakMap<HTMLDivElement, ResizeObserver>();
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -57,6 +58,7 @@ export function applyOverlay(
   // Swap el for wrapper in the DOM without layout shift
   el.parentNode?.insertBefore(wrapper, el);
   wrapper.prepend(el); // el is now first child of wrapper
+  attachResizeObserver(wrapper, el);
 
   return wrapper;
 }
@@ -69,6 +71,8 @@ export function removeOverlay(el: MediaElement): void {
   const wrapper = el.closest<HTMLDivElement>("[data-bg-wrapper]");
   if (!wrapper) return;
 
+  resizeObservers.get(wrapper)?.disconnect();
+  resizeObservers.delete(wrapper);
   wrapper.parentNode?.insertBefore(el, wrapper);
   wrapper.remove();
 }
@@ -102,6 +106,8 @@ export function removeAllOverlays(): void {
   document
     .querySelectorAll<HTMLDivElement>("[data-bg-wrapper]")
     .forEach((wrapper) => {
+      resizeObservers.get(wrapper)?.disconnect();
+      resizeObservers.delete(wrapper);
       const media = wrapper.querySelector<MediaElement>("img, video");
       if (media) {
         wrapper.parentNode?.insertBefore(media, wrapper);
@@ -246,6 +252,43 @@ function buildWrapper(
 
   wrapper.appendChild(overlay);
   return wrapper;
+}
+
+function attachResizeObserver(
+  wrapper: HTMLDivElement,
+  el: MediaElement
+): void {
+  syncWrapperSize(wrapper, el);
+
+  const observer = new ResizeObserver(() => {
+    syncWrapperSize(wrapper, el);
+  });
+
+  observer.observe(el);
+  resizeObservers.set(wrapper, observer);
+}
+
+function syncWrapperSize(wrapper: HTMLDivElement, el: MediaElement): void {
+  const computed = window.getComputedStyle(el);
+  const rect = el.getBoundingClientRect();
+  const width =
+    rect.width ||
+    el.offsetWidth ||
+    parseFloat(computed.width) ||
+    (el instanceof HTMLImageElement ? el.naturalWidth : 0);
+  const height =
+    rect.height ||
+    el.offsetHeight ||
+    parseFloat(computed.height) ||
+    (el instanceof HTMLImageElement ? el.naturalHeight : 0);
+
+  if (width > 0) {
+    wrapper.style.width = `${width}px`;
+  }
+
+  if (height > 0) {
+    wrapper.style.height = `${height}px`;
+  }
 }
 
 // ─── Style injection ──────────────────────────────────────────────────────────

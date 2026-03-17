@@ -9,9 +9,14 @@ import QuickActions from "@/components/blurguard/QuickActions";
 import SafetyInsights from "@/components/blurguard/SafetyInsights";
 import SensitivityControl from "@/components/blurguard/SensitivityControl";
 import { useBlurGuard } from "@/hooks/useBlurGuard";
+import { useCallback } from "react";
 
 const Index = () => {
-  const { state, loading, setEnabled, setSensitivity } = useBlurGuard();
+  const { state, loading, resetStats, setEnabled, setPaused, setSensitivity } =
+    useBlurGuard();
+  const resumeProtection = useCallback(() => {
+    setEnabled(true);
+  }, [setEnabled]);
 
   return (
     <div className="min-h-screen flex items-start justify-center bg-background py-8">
@@ -36,7 +41,11 @@ const Index = () => {
 
             <QuickActions
               enabled={state.enabled}
+              pausedUntil={state.pausedUntil}
               onToggleEnabled={() => setEnabled(!state.enabled)}
+              onPause={() => setPaused()}
+              onResume={resumeProtection}
+              onResetStats={resetStats}
             />
 
             <SafetyInsights stats={state.stats} feed={state.feed} />

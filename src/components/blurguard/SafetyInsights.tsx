@@ -10,29 +10,46 @@ interface Props {
   feed: DetectionEvent[];
 }
 
-/** Returns unique domains from feed, most-frequent first, max 3 */
 function topDomains(feed: DetectionEvent[]): string[] {
   const counts: Record<string, number> = {};
-  for (const e of feed) counts[e.domain] = (counts[e.domain] ?? 0) + 1;
+
+  for (const event of feed) {
+    counts[event.domain] = (counts[event.domain] ?? 0) + 1;
+  }
+
   return Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
-    .map(([d]) => d);
+    .map(([domain]) => domain);
 }
 
-/** Build a 7-bar sparkline from the last 7 detections' confidence values */
 function sparkline(feed: DetectionEvent[]): number[] {
-  const recent = feed.slice(0, 7).reverse();
-  // Pad to 7 bars so layout is stable when few events exist
-  while (recent.length < 7) recent.unshift({ confidence: 0 } as DetectionEvent);
-  return recent.map((e) => e.confidence);
+  const now = Date.now();
+  const buckets: number[] = Array(7).fill(0);
+
+  for (const event of feed) {
+    const diffMs = now - event.timestamp;
+    if (diffMs < 0) continue;
+
+    const hourOffset = Math.floor(diffMs / (60 * 60 * 1000));
+    if (hourOffset >= 7) continue;
+
+    buckets[6 - hourOffset] += 1;
+  }
+
+  const maxCount = Math.max(...buckets, 0);
+  if (maxCount === 0) {
+    return buckets.map(() => 10);
+  }
+
+  return buckets.map((count) => Math.max(10, (count / maxCount) * 100));
 }
 
-/** Average confidence across the feed, interpreted as "AI Accuracy" */
 function avgConfidence(feed: DetectionEvent[]): number {
   if (feed.length === 0) return 0;
-  const sum = feed.reduce((acc, e) => acc + e.confidence, 0);
-  return sum / feed.length;
+
+  const sum = feed.reduce((acc, event) => acc + event.confidence, 0);
+  return Number(((sum / feed.length) * 100).toFixed(1));
 }
 
 const SafetyInsights = ({ stats, feed }: Props) => {
@@ -46,24 +63,23 @@ const SafetyInsights = ({ stats, feed }: Props) => {
         Safety Insights
       </h3>
       <div className="space-y-2">
-        {/* Blocked today with sparkline */}
         <div className="flex items-center gap-3 rounded-lg bg-card border border-border px-3 py-2.5">
           <BarChart3 className="h-4 w-4 text-primary shrink-0" />
           <div className="flex-1">
             <span className="text-xs text-foreground font-medium">
-              {stats.blocked.toLocaleString()} blocked total
+              {stats.blocked.toLocaleString()} blocked today
             </span>
-            <div className="flex items-end gap-0.5 mt-1.5">
-              {bars.map((conf, i) => (
+            <div className="mt-1.5 flex h-8 items-end gap-0.5">
+              {bars.map((height, i) => (
                 <div
                   key={i}
                   className="w-3 rounded-sm transition-all duration-500"
                   style={{
-                    height: `${Math.max(2, conf * 14)}px`,
+                    height: `${height}%`,
                     background:
-                      conf > 0
-                        ? `hsl(340 100% 50% / ${0.4 + conf * 0.5})`
-                        : "hsl(0 0% 16%)",
+                      height > 10
+                        ? "hsl(340 100% 50% / 0.85)"
+                        : "hsl(340 30% 30% / 0.35)",
                   }}
                 />
               ))}
@@ -71,35 +87,32 @@ const SafetyInsights = ({ stats, feed }: Props) => {
           </div>
         </div>
 
-        {/* Top detected domains */}
         <div className="flex items-center gap-3 rounded-lg bg-card border border-border px-3 py-2.5">
           <Globe className="h-4 w-4 text-primary shrink-0" />
           <div className="flex-1 min-w-0">
             <span className="text-xs text-foreground font-medium">
               Top domains
             </span>
-            <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
-              {domains.length > 0 ? domains.join(" · ") : "No detections yet"}
+            <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+              {domains.length > 0
+                ? domains.join(" \u00B7 ")
+                : "No detections yet"}
             </p>
           </div>
         </div>
 
-        {/* Classifier confidence bar */}
         <div className="flex items-center gap-3 rounded-lg bg-card border border-border px-3 py-2.5">
           <Zap className="h-4 w-4 text-primary shrink-0" />
           <div className="flex-1">
             <div className="flex items-baseline justify-between">
               <span className="text-xs text-foreground font-medium">
-                Avg. Confidence
+                AI Accuracy
               </span>
-              <span className="text-[10px] text-primary font-bold tabular-nums">
-                {feed.length > 0 ? `${Math.round(accuracy * 100)}%` : "—"}
+              <span className="text-[10px] font-bold tabular-nums text-primary">
+                {feed.length > 0 ? `${accuracy.toFixed(1)}%` : "\u2014"}
               </span>
             </div>
-            <Progress
-              value={accuracy * 100}
-              className="mt-1.5 h-1.5 bg-secondary"
-            />
+            <Progress value={accuracy} className="mt-1.5 h-1.5 bg-secondary" />
           </div>
         </div>
       </div>

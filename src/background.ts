@@ -1,10 +1,16 @@
 // BlurGuard — Background Service Worker (MV3)
 // Runs as a persistent-less service worker. Re-initializes on each wake.
 
-import type { BlurGuardMessage, BlurGuardState } from "./types/messages";
+import type {
+  BlurGuardMessage,
+  BlurGuardState,
+  DetectionEvent,
+  DetectionReportPayload,
+} from "./types/messages";
 
 const DEFAULT_STATE: BlurGuardState = {
   enabled: true,
+  pausedUntil: 0,
   sensitivity: "balanced",
   feed: [],
   stats: {
@@ -16,12 +22,24 @@ const DEFAULT_STATE: BlurGuardState = {
 
 // ─── Initialization ───────────────────────────────────────────────────────────
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   const existing = await chrome.storage.local.get("blurguard");
-  if (!existing.blurguard) {
+  if (details.reason === "install" && !existing.blurguard) {
     await chrome.storage.local.set({ blurguard: DEFAULT_STATE });
     console.log("[BlurGuard] Initialized default state.");
   }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== "complete" || !tab.url) return;
+  if (!/^https?:/i.test(tab.url)) return;
+
+  chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content.js"],
+  }).catch(() => {
+    // Ignore tabs where reinjection is not allowed or already unavailable.
+  });
 });
 
 // ─── Message Handler ──────────────────────────────────────────────────────────
@@ -34,34 +52,87 @@ chrome.runtime.onMessage.addListener(
 );
 
 async function handleMessage(message: BlurGuardMessage): Promise<unknown> {
-  const { type, payload } = message;
-
-  switch (type) {
+  switch (message.type) {
     case "GET_STATE": {
-      const data = await chrome.storage.local.get("blurguard");
-      return data.blurguard ?? DEFAULT_STATE;
+      return getState();
+    }
+
+    case "RESET_STATS": {
+      const current = await getState();
+      const nextState: BlurGuardState = {
+        ...current,
+        feed: [],
+        stats: { ...DEFAULT_STATE.stats },
+      };
+      await chrome.storage.local.set({ blurguard: nextState });
+      await notifyPopup(nextState);
+      return { ok: true };
     }
 
     case "SET_ENABLED": {
-      await updateState({ enabled: payload as boolean });
-      await broadcastToAllTabs({ type: "PROTECTION_TOGGLED", payload });
+      const enabled = message.payload;
+      await updateState({
+        enabled,
+        pausedUntil: enabled ? 0 : (await getState()).pausedUntil,
+      });
+      await broadcastToAllTabs({
+        type: "PROTECTION_TOGGLED",
+        payload: enabled,
+      });
+      await notifyPopup(await getState());
+      return { ok: true };
+    }
+
+    case "SET_PAUSED": {
+      const nextState: BlurGuardState = {
+        ...(await getState()),
+        enabled: false,
+        pausedUntil: Date.now() + 5 * 60 * 1000,
+      };
+      await chrome.storage.local.set({ blurguard: nextState });
+      await broadcastToAllTabs({ type: "PROTECTION_TOGGLED", payload: false });
+      await notifyPopup(nextState);
       return { ok: true };
     }
 
     case "SET_SENSITIVITY": {
       await updateState({
-        sensitivity: payload as BlurGuardState["sensitivity"],
+        sensitivity: message.payload,
       });
-      await broadcastToAllTabs({ type: "SENSITIVITY_CHANGED", payload });
+      await broadcastToAllTabs({
+        type: "SENSITIVITY_CHANGED",
+        payload: message.payload,
+      });
+      await notifyPopup(await getState());
       return { ok: true };
     }
 
     case "REPORT_DETECTION": {
       const state = await getState();
-      const detection = payload as { kind: "image" | "video" };
+      if (state.pausedUntil > Date.now()) {
+        return { ok: true };
+      }
+      const detection: DetectionReportPayload = message.payload;
+      let domain = "unknown";
 
-      const updated: BlurGuardState = {
+      try {
+        domain = new URL(detection.src).hostname;
+      } catch {
+        // Keep a safe fallback if the media source is missing or malformed.
+      }
+
+      const event: DetectionEvent = {
+        id: crypto.randomUUID(),
+        kind: detection.kind,
+        src: detection.src,
+        domain,
+        confidence: detection.confidence,
+        timestamp: Date.now(),
+      };
+
+      const nextState: BlurGuardState = {
         ...state,
+        feed: [event, ...state.feed].slice(0, 20),
         stats: {
           ...state.stats,
           images:
@@ -75,13 +146,20 @@ async function handleMessage(message: BlurGuardMessage): Promise<unknown> {
           blocked: state.stats.blocked + 1,
         },
       };
-      await chrome.storage.local.set({ blurguard: updated });
+      await chrome.storage.local.set({ blurguard: nextState });
+      await notifyPopup(nextState);
       return { ok: true };
     }
 
-    default:
-      return { error: `Unknown message type: ${type}` };
+    case "STATE_UPDATED":
+    case "PROTECTION_TOGGLED":
+    case "SENSITIVITY_CHANGED":
+      return { ok: true };
+
   }
+
+  const exhaustiveCheck: never = message;
+  return { error: `Unknown message type: ${String(exhaustiveCheck)}` };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -104,12 +182,22 @@ async function broadcastToAllTabs(message: BlurGuardMessage): Promise<void> {
 }
 
 async function getState(): Promise<BlurGuardState> {
-  const result = await chrome.storage.local.get("blurguard");
   const data = await chrome.storage.local.get("blurguard");
-  if (!result.blurguard) {
-    await chrome.storage.local.set({ blurguard: DEFAULT_STATE });
-    return DEFAULT_STATE;
-  }
+  const stored = data.blurguard as Partial<BlurGuardState> | undefined;
+  if (!stored) return DEFAULT_STATE;
 
-  return (data.blurguard as BlurGuardState | undefined) ?? DEFAULT_STATE;
+  return {
+    ...DEFAULT_STATE,
+    ...stored,
+    stats: {
+      ...DEFAULT_STATE.stats,
+      ...(stored.stats ?? {}),
+    },
+  };
+}
+
+async function notifyPopup(state: BlurGuardState): Promise<void> {
+  await chrome.runtime
+    .sendMessage({ type: "STATE_UPDATED", payload: state })
+    .catch(() => {});
 }
