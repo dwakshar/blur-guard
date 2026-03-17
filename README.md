@@ -7,6 +7,8 @@
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](#)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)](#)
 [![Vite](https://img.shields.io/badge/Vite-7-646CFF?style=flat-square&logo=vite&logoColor=white)](#)
+[![nsfwjs](https://img.shields.io/badge/nsfwjs-AI%20Detection-FE9901?style=flat-square&logo=tensorflow&logoColor=white)](#)
+[![TensorFlow.js](https://img.shields.io/badge/TensorFlow.js-ML%20Engine-FF6F00?style=flat-square&logo=tensorflow&logoColor=white)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](#license)
 
 </div>
