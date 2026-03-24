@@ -40,12 +40,20 @@
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    width: 100%;
+  }
+
   * {
     border-color: hsl(var(--border));
   }
 
   body {
     @apply bg-background text-foreground antialiased;
+    margin: 0;
     font-family: "Inter", system-ui, -apple-system, sans-serif;
   }
 }

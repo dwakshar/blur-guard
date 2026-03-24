@@ -19,15 +19,15 @@ const Index = () => {
   }, [setEnabled]);
 
   return (
-    <div className="min-h-screen flex items-start justify-center bg-background py-8">
-      <div className="w-[360px] bg-background border border-border rounded-2xl overflow-hidden shadow-2xl shadow-primary/5">
+    <div className="min-h-screen w-full bg-background p-2">
+      <div className="w-[360px] max-w-full overflow-hidden rounded-[26px] bg-background shadow-[0_24px_60px_rgba(0,0,0,0.38)]">
         {loading ? (
           // Skeleton shimmer while fetching state from background
           <div className="flex items-center justify-center h-[420px]">
             <div className="h-4 w-4 rounded-full bg-primary/40 animate-pulse" />
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 py-1">
             <Header enabled={state.enabled} />
 
             <ProtectionStatus stats={state.stats} enabled={state.enabled} />

@@ -58,7 +58,7 @@ const SafetyInsights = ({ stats, feed }: Props) => {
   const accuracy = avgConfidence(feed);
 
   return (
-    <div className="mx-4 pb-5">
+    <div className="mx-4 pb-4">
       <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
         Safety Insights
       </h3>
