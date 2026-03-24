@@ -7,12 +7,12 @@ const levels = [
   {
     key: "low" as Sensitivity,
     label: "Low",
-    desc: "Only blocks highly explicit content.",
+    desc: "Blocks highly explicit content, but leaves most websites and links alone.",
   },
   {
     key: "balanced" as Sensitivity,
     label: "Balanced",
-    desc: "Smart filtering for most situations.",
+    desc: "Blocks NSFW websites and links, while still letting you reveal when needed.",
   },
   {
     key: "strict" as Sensitivity,

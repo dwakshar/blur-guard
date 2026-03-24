@@ -2,7 +2,7 @@
 // BlurGuard - Content Script
 // Detects media via mediaDetector.ts, classifies it, and applies overlays.
 
-import { applyOverlay, removeAllOverlays } from "./lib/blurOverlay";
+import { applyContextBlur, applyOverlay, removeAllOverlays } from "./lib/blurOverlay";
 import { createClassifier, type Classifier } from "./lib/classifier";
 import { startDetector, stopDetector } from "./lib/mediaDetector";
 import type {
@@ -146,22 +146,38 @@ async function scanElement(
     return;
   }
 
-  if (!result.explicit) return;
+  if (!result.shouldBlock) return;
+
+  const canReveal = state.sensitivity !== "strict";
 
   const wrapper = applyOverlay(el, {
-    clickToReveal: true,
+    clickToReveal: canReveal,
     blurRadius: "22px",
-    badgeLabel: "Blurred by BlurGuard",
+    badgeLabel: canReveal
+      ? "Blurred by BlurGuard"
+      : "Blocked by BlurGuard",
   });
 
-  if (!wrapper) return;
+  const contextBlur = wrapper
+    ? null
+    : applyContextBlur(el, {
+        clickToReveal: canReveal,
+        blurRadius: "10px",
+        badgeLabel: canReveal
+          ? "Blurred result by BlurGuard"
+          : "Blocked result by BlurGuard",
+      });
+
+  if (!wrapper && !contextBlur) return;
 
   sendToBackground({
     type: "REPORT_DETECTION",
     payload: {
       kind: el instanceof HTMLImageElement ? "image" : "video",
       src: resolveSource(el),
+      category: result.category,
       confidence: result.confidence,
+      reasons: result.reasons,
     },
   });
 }
@@ -239,11 +255,8 @@ function createContentClassifier(
   sensitivity: Sensitivity
 ): Classifier {
   return createClassifier({
-    backend: "tfjs",
+    backend: "pattern",
     sensitivity,
-    tfjsConfig: {
-      modelUrl: chrome.runtime.getURL("models/mobilenet_v2/"),
-    },
   });
 }
 

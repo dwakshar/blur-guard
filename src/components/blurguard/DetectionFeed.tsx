@@ -31,10 +31,15 @@ function relativeTime(ts: number): string {
 }
 
 function feedLabel(event: DetectionEvent): string {
-  if (event.kind === "video") return "Video blurred";
-  if (event.confidence >= 0.8) return "Explicit image blocked";
-  if (event.confidence >= 0.55) return "AI flagged potential content";
-  return "Suspicious thumbnail detected";
+  if (event.category === "explicit") {
+    return event.kind === "video" ? "Explicit video blocked" : "Explicit image blocked";
+  }
+  if (event.category === "suggestive") {
+    return event.kind === "video"
+      ? "Suggestive video blocked"
+      : "Suggestive content blocked";
+  }
+  return "Potentially unsafe media reviewed";
 }
 
 const DetectionFeed = ({ feed }: Props) => {
@@ -82,6 +87,16 @@ const DetectionFeed = ({ feed }: Props) => {
                       <span className="text-[10px] text-muted-foreground/70 tabular-nums">
                         {Math.round(event.confidence * 100)}% conf.
                       </span>
+                      {event.reasons[0] ? (
+                        <>
+                          <span className="text-[10px] text-muted-foreground/50">
+                            ·
+                          </span>
+                          <span className="truncate text-[10px] text-muted-foreground/70">
+                            {event.reasons[0]}
+                          </span>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                 </div>

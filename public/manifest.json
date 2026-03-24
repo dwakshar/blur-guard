@@ -40,7 +40,7 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "models/*"
+        "assets/*.js"
       ],
       "matches": ["<all_urls>"]
     }

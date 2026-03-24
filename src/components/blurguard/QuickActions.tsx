@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Pause, Shield, ShieldOff } from "lucide-react";
+import { Pause, RotateCcw, Shield, ShieldOff } from "lucide-react";
 
 interface Props {
   enabled: boolean;
@@ -87,20 +87,18 @@ const QuickActions = ({
         </Button>
       </div>
 
-      <button className="flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors font-medium mx-auto">
-        View Full Activity
-        <ArrowRight className="h-3 w-3" />
-      </button>
-
-      <button
-        className="block mx-auto text-[11px] text-muted-foreground hover:text-foreground transition-colors font-medium"
+      <Button
         onClick={() => {
           if (window.confirm("Reset all BlurGuard statistics?")) {
             onResetStats();
           }
-        }}>
+        }}
+        variant="outline"
+        className="w-full text-xs h-9 font-medium border-border hover:bg-secondary"
+        size="sm">
+        <RotateCcw className="h-3.5 w-3.5" />
         Reset Stats
-      </button>
+      </Button>
     </div>
   );
 };

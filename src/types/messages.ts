@@ -2,13 +2,16 @@
 // Shared types for all three extension contexts: popup, background, content script.
 
 export type Sensitivity = "low" | "balanced" | "strict";
+export type DetectionCategory = "safe" | "suggestive" | "explicit";
 
 export interface DetectionEvent {
   id: string;
   kind: "image" | "video";
   src: string;
   domain: string;
+  category: DetectionCategory;
   confidence: number;
+  reasons: string[];
   timestamp: number;
 }
 
@@ -27,7 +30,9 @@ export interface BlurGuardState {
 export interface DetectionReportPayload {
   kind: "image" | "video";
   src: string;
+  category: DetectionCategory;
   confidence: number;
+  reasons: string[];
 }
 
 export interface GetStateMessage {

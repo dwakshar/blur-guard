@@ -31,7 +31,20 @@ export interface BlurOverlayOptions {
 const STYLE_ID = "bg-overlay-styles";
 const WRAPPER_ATTR = "data-bg-wrapped"; // marks already-wrapped elements
 const REVEALED_ATTR = "data-bg-revealed"; // marks temporarily revealed overlays
+const CONTEXT_ATTR = "data-bg-context-blurred";
+const CONTEXT_UI_ATTR = "data-bg-context-ui";
 const resizeObservers = new WeakMap<HTMLDivElement, ResizeObserver>();
+const MIN_MEDIA_OVERLAY_EDGE = 56;
+const MIN_MEDIA_OVERLAY_AREA = 8_000;
+const SEARCH_RESULT_SELECTORS = [
+  "[data-sokoban-container]",
+  "[data-hveid]",
+  ".g",
+  ".MjjYud",
+  ".tF2Cxc",
+  "article",
+  "li",
+].join(",");
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -49,6 +62,7 @@ export function applyOverlay(
   // Guard: already wrapped
   if (el.hasAttribute(WRAPPER_ATTR) || el.closest("[data-bg-wrapper]"))
     return null;
+  if (shouldSkipMediaOverlay(el)) return null;
 
   ensureStyles(options.blurRadius ?? "20px");
 
@@ -61,6 +75,69 @@ export function applyOverlay(
   attachResizeObserver(wrapper, el);
 
   return wrapper;
+}
+
+export function applyContextBlur(
+  el: MediaElement,
+  options: BlurOverlayOptions = {}
+): HTMLElement | null {
+  const { clickToReveal = true } = options;
+  const container = findContextContainer(el);
+  if (!container || container.hasAttribute(CONTEXT_ATTR)) {
+    return null;
+  }
+
+  ensureStyles(options.blurRadius ?? "20px");
+  container.setAttribute(CONTEXT_ATTR, "1");
+
+  const computed = window.getComputedStyle(container);
+  if (computed.position === "static") {
+    container.style.position = "relative";
+  }
+
+  const toggle = document.createElement(clickToReveal ? "button" : "div");
+  if (toggle instanceof HTMLButtonElement) {
+    toggle.type = "button";
+  }
+  toggle.setAttribute(CONTEXT_UI_ATTR, "1");
+  toggle.textContent = options.badgeLabel ?? "Blurred result by BlurGuard";
+
+  Object.assign(toggle.style, {
+    position: "absolute",
+    top: "8px",
+    left: "8px",
+    zIndex: "2147483646",
+    fontSize: "10px",
+    fontFamily: "system-ui, -apple-system, sans-serif",
+    fontWeight: "700",
+    letterSpacing: "0.03em",
+    color: "rgba(255,255,255,0.88)",
+    padding: "5px 8px",
+    borderRadius: "999px",
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(18,18,18,0.82)",
+    backdropFilter: "blur(8px)",
+    WebkitBackdropFilter: "blur(8px)",
+    cursor: clickToReveal ? "pointer" : "default",
+  });
+
+  if (clickToReveal) {
+    toggle.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (container.hasAttribute(REVEALED_ATTR)) {
+        container.removeAttribute(REVEALED_ATTR);
+        toggle.textContent = options.badgeLabel ?? "Blurred result by BlurGuard";
+      } else {
+        container.setAttribute(REVEALED_ATTR, "1");
+        toggle.textContent = "Click to hide again";
+      }
+    });
+  }
+
+  container.appendChild(toggle);
+  return container;
 }
 
 /**
@@ -114,6 +191,12 @@ export function removeAllOverlays(): void {
       }
       wrapper.remove();
     });
+
+  document.querySelectorAll<HTMLElement>(`[${CONTEXT_ATTR}]`).forEach((container) => {
+    container.removeAttribute(CONTEXT_ATTR);
+    container.removeAttribute(REVEALED_ATTR);
+    container.querySelectorAll(`[${CONTEXT_UI_ATTR}]`).forEach((node) => node.remove());
+  });
 }
 
 // ─── DOM Builders ─────────────────────────────────────────────────────────────
@@ -135,6 +218,13 @@ function buildWrapper(
     width > 0 ? width : el instanceof HTMLImageElement ? el.naturalWidth : 0;
   const finalH =
     height > 0 ? height : el instanceof HTMLImageElement ? el.naturalHeight : 0;
+  if (
+    finalW < MIN_MEDIA_OVERLAY_EDGE ||
+    finalH < MIN_MEDIA_OVERLAY_EDGE ||
+    finalW * finalH < MIN_MEDIA_OVERLAY_AREA
+  ) {
+    return null;
+  }
 
   // ── Wrapper — takes the element's place in flow ──────────────────────────
   const wrapper = document.createElement("div");
@@ -254,6 +344,58 @@ function buildWrapper(
   return wrapper;
 }
 
+function shouldSkipMediaOverlay(el: MediaElement): boolean {
+  const rect = el.getBoundingClientRect();
+  const width =
+    rect.width ||
+    el.clientWidth ||
+    (el instanceof HTMLImageElement ? el.naturalWidth : 0);
+  const height =
+    rect.height ||
+    el.clientHeight ||
+    (el instanceof HTMLImageElement ? el.naturalHeight : 0);
+  const area = width * height;
+
+  if (
+    width < MIN_MEDIA_OVERLAY_EDGE ||
+    height < MIN_MEDIA_OVERLAY_EDGE ||
+    area < MIN_MEDIA_OVERLAY_AREA
+  ) {
+    return true;
+  }
+
+  return Boolean(
+    el.closest(
+      [
+        "[role='img']",
+        "[aria-label*='logo' i]",
+        "[class*='favicon' i]",
+        "[class*='logo' i]",
+      ].join(",")
+    )
+  );
+}
+
+function findContextContainer(el: MediaElement): HTMLElement | null {
+  const candidates = [
+    el.closest<HTMLElement>(SEARCH_RESULT_SELECTORS),
+    el.closest<HTMLElement>("article"),
+    el.closest<HTMLElement>("li"),
+    el.closest<HTMLElement>("section"),
+  ].filter(Boolean) as HTMLElement[];
+
+  for (const candidate of candidates) {
+    const rect = candidate.getBoundingClientRect();
+    const text = candidate.textContent?.trim() ?? "";
+    if (rect.width < 160 || rect.height < 80) continue;
+    if (rect.width > window.innerWidth * 0.95 || rect.height > window.innerHeight * 0.9) continue;
+    if (text.length < 20) continue;
+    return candidate;
+  }
+
+  return null;
+}
+
 function attachResizeObserver(
   wrapper: HTMLDivElement,
   el: MediaElement
@@ -334,6 +476,29 @@ function ensureStyles(blurRadius: string): void {
     [data-bg-wrapper] > img:hover,
     [data-bg-wrapper] > video:hover {
       filter: none !important;
+    }
+    [${CONTEXT_ATTR}] {
+      overflow: hidden;
+      border-radius: 14px;
+    }
+    [${CONTEXT_ATTR}] > :not([${CONTEXT_UI_ATTR}]):not([data-bg-wrapper]),
+    [${CONTEXT_ATTR}] > :not([${CONTEXT_UI_ATTR}]):not([data-bg-wrapper]) * {
+      filter: blur(5px) !important;
+      transition: filter 0.2s ease, opacity 0.2s ease;
+    }
+    [${CONTEXT_ATTR}] a,
+    [${CONTEXT_ATTR}] button,
+    [${CONTEXT_ATTR}] [role="link"] {
+      pointer-events: none !important;
+    }
+    [${CONTEXT_ATTR}][${REVEALED_ATTR}] > :not([${CONTEXT_UI_ATTR}]):not([data-bg-wrapper]),
+    [${CONTEXT_ATTR}][${REVEALED_ATTR}] > :not([${CONTEXT_UI_ATTR}]):not([data-bg-wrapper]) * {
+      filter: none !important;
+    }
+    [${CONTEXT_ATTR}][${REVEALED_ATTR}] a,
+    [${CONTEXT_ATTR}][${REVEALED_ATTR}] button,
+    [${CONTEXT_ATTR}][${REVEALED_ATTR}] [role="link"] {
+      pointer-events: auto !important;
     }
   `.replace(/20px/g, blurRadius); // honour custom blurRadius in CSS too
 

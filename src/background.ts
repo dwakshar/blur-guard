@@ -1,5 +1,5 @@
-// BlurGuard — Background Service Worker (MV3)
-// Runs as a persistent-less service worker. Re-initializes on each wake.
+// BlurGuard background service worker for MV3.
+// Persists extension state and relays updates to popup/content scripts.
 
 import type {
   BlurGuardMessage,
@@ -20,8 +20,6 @@ const DEFAULT_STATE: BlurGuardState = {
   },
 };
 
-// ─── Initialization ───────────────────────────────────────────────────────────
-
 chrome.runtime.onInstalled.addListener(async (details) => {
   const existing = await chrome.storage.local.get("blurguard");
   if (details.reason === "install" && !existing.blurguard) {
@@ -30,24 +28,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   }
 });
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status !== "complete" || !tab.url) return;
-  if (!/^https?:/i.test(tab.url)) return;
-
-  chrome.scripting.executeScript({
-    target: { tabId },
-    files: ["content.js"],
-  }).catch(() => {
-    // Ignore tabs where reinjection is not allowed or already unavailable.
-  });
-});
-
-// ─── Message Handler ──────────────────────────────────────────────────────────
-
 chrome.runtime.onMessage.addListener(
   (message: BlurGuardMessage, _sender, sendResponse) => {
     handleMessage(message).then(sendResponse);
-    return true; // keep channel open for async response
+    return true;
   }
 );
 
@@ -112,6 +96,7 @@ async function handleMessage(message: BlurGuardMessage): Promise<unknown> {
       if (state.pausedUntil > Date.now()) {
         return { ok: true };
       }
+
       const detection: DetectionReportPayload = message.payload;
       let domain = "unknown";
 
@@ -126,7 +111,9 @@ async function handleMessage(message: BlurGuardMessage): Promise<unknown> {
         kind: detection.kind,
         src: detection.src,
         domain,
+        category: detection.category,
         confidence: detection.confidence,
+        reasons: detection.reasons,
         timestamp: Date.now(),
       };
 
@@ -155,14 +142,11 @@ async function handleMessage(message: BlurGuardMessage): Promise<unknown> {
     case "PROTECTION_TOGGLED":
     case "SENSITIVITY_CHANGED":
       return { ok: true };
-
   }
 
   const exhaustiveCheck: never = message;
   return { error: `Unknown message type: ${String(exhaustiveCheck)}` };
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function updateState(partial: Partial<BlurGuardState>): Promise<void> {
   const current = await getState();
@@ -175,7 +159,7 @@ async function broadcastToAllTabs(message: BlurGuardMessage): Promise<void> {
   for (const tab of tabs) {
     if (tab.id) {
       chrome.tabs.sendMessage(tab.id, message).catch(() => {
-        // Tab may not have content script — ignore silently
+        // Tab may not have the content script yet.
       });
     }
   }
