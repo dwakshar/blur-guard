@@ -13,7 +13,7 @@
 
 </div>
 
-AI-Powered Browser Extension for Real-Time NSFW Detection. Bonking NSFW tabs before you see them.
+A Browser Extension for Real-Time NSFW Detection. Bonking NSFW tabs before you see them.
 
 ---
 
