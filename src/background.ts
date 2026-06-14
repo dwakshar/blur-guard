@@ -1,12 +1,16 @@
 // BlurGuard background service worker for MV3.
-// Persists extension state and relays updates to popup/content scripts.
+// Owns extension state, offscreen document lifecycle, and the classify round-trip.
 
 import type {
   BlurGuardMessage,
   BlurGuardState,
+  ClassifyResultMessage,
   DetectionEvent,
   DetectionReportPayload,
+  Verdict,
 } from "./types/messages";
+import { assertNever } from "./types/messages";
+import { verdictFromPredictions } from "./lib/classifier";
 
 const DEFAULT_STATE: BlurGuardState = {
   enabled: true,
@@ -20,6 +24,63 @@ const DEFAULT_STATE: BlurGuardState = {
   },
 };
 
+// ── Offscreen document lifecycle ──────────────────────────────────────────────
+// Only one offscreen doc may exist per extension at a time (Chrome limit).
+// offscreenCreating serializes concurrent ensureOffscreen() calls so we never
+// call createDocument() twice in the same SW lifetime.
+
+let offscreenCreating: Promise<void> | null = null;
+
+async function ensureOffscreen(): Promise<void> {
+  // getContexts is the canonical check; hasDocument() was removed from the spec.
+  const existing = await chrome.runtime.getContexts({
+    contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+  });
+  if (existing.length > 0) return;
+
+  // If another concurrent call already started creation, await it.
+  if (offscreenCreating) {
+    await offscreenCreating;
+    return;
+  }
+
+  offscreenCreating = chrome.offscreen
+    .createDocument({
+      url: "offscreen.html",
+      // BLOBS: we fetch image bytes and call blob() on the Response.
+      // DOM_SCRAPING: createImageBitmap + canvas drawing for ML preprocessing.
+      // No explicit canvas/WebGL reason exists in the API; DOM_SCRAPING is the
+      // accepted stand-in for ML workloads (see Chrome extension samples).
+      reasons: [
+        chrome.offscreen.Reason.BLOBS,
+        chrome.offscreen.Reason.DOM_SCRAPING,
+      ],
+      justification:
+        "Fetch image bytes as Blob and decode via createImageBitmap for ML inference " +
+        "using canvas and WebGL — contexts unavailable in the service worker.",
+    })
+    .catch((err: unknown) => {
+      // If the SW was terminated and restarted mid-flight, Chrome may report
+      // "Only a single offscreen document may be created" even though our
+      // getContexts check above returned 0. Treat this as success.
+      if (
+        err instanceof Error &&
+        err.message.includes("Only a single offscreen")
+      ) {
+        return;
+      }
+      throw err;
+    });
+
+  try {
+    await offscreenCreating;
+  } finally {
+    offscreenCreating = null;
+  }
+}
+
+// ── Message listener ──────────────────────────────────────────────────────────
+
 chrome.runtime.onInstalled.addListener(async (details) => {
   const existing = await chrome.storage.local.get("blurguard");
   if (details.reason === "install" && !existing.blurguard) {
@@ -29,13 +90,16 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 });
 
 chrome.runtime.onMessage.addListener(
-  (message: BlurGuardMessage, _sender, sendResponse) => {
-    handleMessage(message).then(sendResponse);
+  (message: BlurGuardMessage, sender, sendResponse) => {
+    handleMessage(message, sender).then(sendResponse);
     return true;
   }
 );
 
-async function handleMessage(message: BlurGuardMessage): Promise<unknown> {
+async function handleMessage(
+  message: BlurGuardMessage,
+  sender?: chrome.runtime.MessageSender
+): Promise<unknown> {
   switch (message.type) {
     case "GET_STATE": {
       return getState();
@@ -142,10 +206,118 @@ async function handleMessage(message: BlurGuardMessage): Promise<unknown> {
     case "PROTECTION_TOGGLED":
     case "SENSITIVITY_CHANGED":
       return { ok: true };
+
+    // ── Inference pipeline ────────────────────────────────────────────────────
+
+    case "CLASSIFY_REQUEST": {
+      const state = await getState();
+      if (!state.enabled || state.pausedUntil > Date.now()) {
+        return { ok: true };
+      }
+
+      const { id, url, kind } = message.payload;
+
+      // Ensure the offscreen doc exists before forwarding.
+      await ensureOffscreen();
+
+      // Forward to offscreen doc and await the stub/real classify result.
+      let raw: ClassifyResultMessage["payload"] | undefined;
+      try {
+        raw = (await chrome.runtime.sendMessage({
+          type: "OFFSCREEN_CLASSIFY",
+          payload: { id, url, kind },
+        })) as ClassifyResultMessage["payload"];
+      } catch (err) {
+        console.error("[BlurGuard SW] offscreen classify error:", err);
+        return { ok: true };
+      }
+
+      if (!raw?.predictions?.length) return { ok: true };
+
+      // Map predictions through sensitivity thresholds → Verdict.
+      const verdict: Verdict = verdictFromPredictions(
+        raw.predictions,
+        state.sensitivity
+      );
+
+      // Send BLUR_DECISION to the originating tab's content script.
+      const tabId = sender?.tab?.id;
+      if (tabId !== undefined) {
+        chrome.tabs
+          .sendMessage(tabId, {
+            type: "BLUR_DECISION",
+            payload: { id, verdict, ms: raw.ms },
+          })
+          .catch(() => {
+            // Tab may have navigated away before the round-trip completed.
+          });
+      }
+
+      // Persist to feed and push STATE_UPDATED only when blocking, matching the
+      // REPORT_DETECTION behavior (content script only reports blocked items).
+      if (verdict.shouldBlock) {
+        const nextState = buildNextState(state, id, url, kind, verdict);
+        await chrome.storage.local.set({ blurguard: nextState });
+        await notifyPopup(nextState);
+      }
+
+      return { ok: true };
+    }
+
+    // SW sends these; it does not receive them. No-op to keep switch exhaustive.
+    case "OFFSCREEN_CLASSIFY":
+    case "CLASSIFY_RESULT":
+    case "BLUR_DECISION":
+      return { ok: true };
+
+    // Offscreen lifecycle — SW sends OFFSCREEN_PING; offscreen sends OFFSCREEN_READY.
+    // Neither needs SW-side handling beyond an ACK.
+    case "OFFSCREEN_PING":
+    case "OFFSCREEN_READY":
+      return { ok: true };
+
+    default:
+      return assertNever(message);
+  }
+}
+
+// ── State helpers ─────────────────────────────────────────────────────────────
+
+function buildNextState(
+  state: BlurGuardState,
+  id: string,
+  url: string,
+  kind: "image" | "video",
+  verdict: Verdict
+): BlurGuardState {
+  let domain = "unknown";
+  try {
+    domain = new URL(url).hostname;
+  } catch {
+    // Malformed or data: URL — keep "unknown".
   }
 
-  const exhaustiveCheck: never = message;
-  return { error: `Unknown message type: ${String(exhaustiveCheck)}` };
+  const event: DetectionEvent = {
+    id,
+    kind,
+    src: url,
+    domain,
+    category: verdict.category,
+    confidence: verdict.confidence,
+    reasons: verdict.reasons,
+    timestamp: Date.now(),
+  };
+
+  return {
+    ...state,
+    feed: [event, ...state.feed].slice(0, 20),
+    stats: {
+      ...state.stats,
+      images: kind === "image" ? state.stats.images + 1 : state.stats.images,
+      videos: kind === "video" ? state.stats.videos + 1 : state.stats.videos,
+      blocked: state.stats.blocked + 1,
+    },
+  };
 }
 
 async function updateState(partial: Partial<BlurGuardState>): Promise<void> {

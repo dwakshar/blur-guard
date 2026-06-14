@@ -1,7 +1,13 @@
 // src/lib/classifier.ts
 // Shared classifier abstraction for popup/content/background consumers.
 
-import type { DetectionCategory, Sensitivity } from "../types/messages";
+import type {
+  DetectionCategory,
+  NsfwClassName,
+  Prediction,
+  Sensitivity,
+  Verdict,
+} from "../types/messages";
 
 export interface ClassificationResult {
   category: DetectionCategory;
@@ -774,4 +780,51 @@ function extractConfidence(json: unknown, path: string): number {
   }
 
   return Number(cursor);
+}
+
+// ── nsfwjs prediction → Verdict ───────────────────────────────────────────────
+// Used by the SW to convert raw model output into a blur decision using the same
+// SENSITIVITY_PROFILES thresholds as the pattern/API classifiers.
+//
+// nsfwjs class semantics:
+//   Porn + Hentai  → explicit   (combined probability vs explicitThreshold)
+//   Sexy           → suggestive (vs suggestiveThreshold)
+//   Neutral + Drawing → safe
+//
+// ClassificationResult and Verdict are structurally identical so the return value
+// of finalizeResult() is directly assignable to Verdict without a cast.
+
+export function verdictFromPredictions(
+  predictions: Prediction[],
+  sensitivity: Sensitivity
+): Verdict {
+  const byClass: Partial<Record<NsfwClassName, number>> = {};
+  for (const { className, probability } of predictions) {
+    byClass[className] = probability;
+  }
+
+  const explicitScore = clampConfidence(
+    (byClass.Porn ?? 0) + (byClass.Hentai ?? 0)
+  );
+  const suggestiveScore = byClass.Sexy ?? 0;
+
+  const profile = SENSITIVITY_PROFILES[sensitivity];
+  let category: DetectionCategory = "safe";
+  let confidence = 0;
+  const reasons: string[] = [];
+
+  if (explicitScore >= profile.explicitThreshold) {
+    category = "explicit";
+    confidence = explicitScore;
+    if ((byClass.Porn ?? 0) >= 0.1) reasons.push("porn classification");
+    if ((byClass.Hentai ?? 0) >= 0.1) reasons.push("hentai classification");
+  } else if (suggestiveScore >= profile.suggestiveThreshold) {
+    category = "suggestive";
+    confidence = suggestiveScore;
+    reasons.push("sexy classification");
+  } else {
+    confidence = Math.max(explicitScore, suggestiveScore * 0.48);
+  }
+
+  return finalizeResult(category, confidence, sensitivity, reasons);
 }

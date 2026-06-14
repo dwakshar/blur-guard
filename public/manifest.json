@@ -30,18 +30,25 @@
     "storage",
     "activeTab",
     "scripting",
-    "tabs"
+    "tabs",
+    "offscreen"
   ],
 
   "host_permissions": [
     "<all_urls>"
   ],
 
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
+
   "web_accessible_resources": [
     {
-      "resources": [
-        "assets/*.js"
-      ],
+      "resources": ["assets/*.js"],
+      "matches": ["<all_urls>"]
+    },
+    {
+      "resources": ["offscreen.html", "models/*", "wasm/*"],
       "matches": ["<all_urls>"]
     }
   ],

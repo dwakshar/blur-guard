@@ -21,11 +21,14 @@ export default defineConfig({
         index: resolve(__dirname, "index.html"),
         background: resolve(__dirname, "src/background.ts"),
         content: resolve(__dirname, "src/content.ts"),
+        offscreen: resolve(__dirname, "offscreen.html"),
       },
 
       output: {
+        // SW, content script, and offscreen entry must not carry a hash —
+        // the manifest and createDocument() reference them by stable name.
         entryFileNames: (chunk) => {
-          if (chunk.name === "background" || chunk.name === "content") {
+          if (["background", "content", "offscreen"].includes(chunk.name)) {
             return "[name].js";
           }
           return "assets/[name]-[hash].js";
