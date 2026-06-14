@@ -1,6 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { resolve } from "path";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   base: "./",
@@ -37,5 +37,9 @@ export default defineConfig({
         assetFileNames: "assets/[name]-[hash].[ext]",
       },
     },
+  },
+
+  test: {
+    environment: "node",
   },
 });
