@@ -118,7 +118,7 @@ async function handleProtectionToggled(enabled: boolean): Promise<void> {
 // ─── BLUR_DECISION handler ────────────────────────────────────────────────────
 
 function applyDecision(message: BlurDecisionMessage): void {
-  const { id, verdict, ms: swMs } = message.payload;
+  const { id, verdict, inferenceMs, decodeMs } = message.payload;
 
   const record = pending.get(id);
   if (!record) return; // already handled or stale
@@ -126,11 +126,10 @@ function applyDecision(message: BlurDecisionMessage): void {
 
   const { el, sentAt } = record;
 
-  // Latency harness: roundTripMs = content-measured end-to-end time.
-  // swMs = SW-reported inference duration (fake until Phase 1 real model runs).
   const roundTripMs = Math.round(performance.now() - sentAt);
+  // inferenceMs is the honest on-device cost. decode and round-trip are secondary.
   console.debug(
-    `[BlurGuard] id=${id} round-trip=${roundTripMs}ms sw-inference=${swMs}ms verdict=${verdict.category} block=${verdict.shouldBlock}`
+    `[BlurGuard] id=${id} inference=${inferenceMs}ms decode=${decodeMs}ms round-trip=${roundTripMs}ms verdict=${verdict.category} block=${verdict.shouldBlock}`
   );
 
   if (!verdict.shouldBlock) return;

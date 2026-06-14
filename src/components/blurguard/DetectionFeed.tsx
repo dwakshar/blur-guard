@@ -81,17 +81,27 @@ const DetectionFeed = ({ feed }: Props) => {
                       <span className="text-[10px] text-muted-foreground">
                         {relativeTime(event.timestamp)}
                       </span>
-                      <span className="text-[10px] text-muted-foreground/50">
-                        ·
-                      </span>
+                      <span className="text-[10px] text-muted-foreground/50">·</span>
                       <span className="text-[10px] text-muted-foreground/70 tabular-nums">
                         {Math.round(event.confidence * 100)}% conf.
                       </span>
+                      {event.inferenceMs > 0 ? (
+                        <>
+                          <span className="text-[10px] text-muted-foreground/50">·</span>
+                          {/* inferenceMs = on-device model cost; the honest latency number */}
+                          <span className="text-[10px] font-medium text-foreground/70 tabular-nums">
+                            {event.inferenceMs}ms
+                          </span>
+                          {event.decodeMs > 0 ? (
+                            <span className="text-[10px] text-muted-foreground/50 tabular-nums">
+                              +{event.decodeMs}ms dec.
+                            </span>
+                          ) : null}
+                        </>
+                      ) : null}
                       {event.reasons[0] ? (
                         <>
-                          <span className="text-[10px] text-muted-foreground/50">
-                            ·
-                          </span>
+                          <span className="text-[10px] text-muted-foreground/50">·</span>
                           <span className="truncate text-[10px] text-muted-foreground/70">
                             {event.reasons[0]}
                           </span>

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BlurGuard Phase 1.5 — Validation Page</title>
+  <style>
+    body { font-family: monospace; max-width: 1100px; margin: 40px auto; background: #0f0f0f; color: #e0e0e0; padding: 0 20px; }
+    h1 { font-size: 14px; color: #aaa; font-weight: normal; margin-bottom: 4px; }
+    h2 { font-size: 12px; color: #666; font-weight: normal; margin: 0 0 24px 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 32px; }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; overflow: hidden; }
+    .card img { width: 100%; height: 140px; object-fit: cover; display: block; }
+    .card-label { padding: 6px 8px; font-size: 10px; color: #666; }
+    .card-result { padding: 0 8px 8px; font-size: 11px; min-height: 40px; color: #ccc; word-break: break-word; }
+    .result-pending { color: #444; }
+    .result-safe { color: #4ade80; }
+    .result-flag { color: #f59e0b; }
+    .result-block { color: #f87171; }
+    #summary { background: #111; border: 1px solid #333; border-radius: 6px; padding: 16px; margin-top: 24px; white-space: pre; font-size: 11px; line-height: 1.7; color: #ccc; }
+    #summary h3 { color: #888; font-size: 10px; margin: 0 0 8px 0; font-weight: normal; text-transform: uppercase; letter-spacing: 1px; }
+    button { background: #222; border: 1px solid #444; color: #ccc; padding: 6px 14px; border-radius: 4px; font-size: 11px; font-family: monospace; cursor: pointer; margin-right: 8px; }
+    button:hover { background: #2a2a2a; }
+    .section-header { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; margin: 28px 0 10px; }
+    .note { font-size: 10px; color: #444; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+
+<h1>BlurGuard — Phase 1.5 Real-Browser Validation</h1>
+<h2>Load this page with the extension active. Images are classified by the real nsfwjs model.</h2>
+
+<p class="note">
+  Watch the offscreen devtools console for backend/load/timing logs.<br>
+  Each card updates when BlurGuard's BLUR_DECISION arrives (or times out with no decision = safe/not-blocked).
+</p>
+
+<button onclick="runAll()">Classify all images</button>
+<button onclick="clearResults()">Clear</button>
+
+<div class="section-header">Set A — Known Safe (expect Neutral dominant, nothing blurs)</div>
+<div class="grid" id="grid-safe"></div>
+
+<div class="section-header">Set B — Borderline / Artistic (expect Neutral or Sexy; note false-positive rate)</div>
+<div class="grid" id="grid-borderline"></div>
+
+<div id="summary">
+  <h3>Summary — paste back to Claude</h3>
+  <span id="summary-text">Run classification first.</span>
+</div>
+
+<script>
+// ── Image sets ────────────────────────────────────────────────────────────────
+// All sourced from Wikimedia Commons (public domain) or Unsplash (free).
+// Using direct stable URLs — no tracking, no auth.
+
+const SAFE_IMAGES = [
+  { label: "Mountain landscape",  url: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a8/Tour_Eiffel_Wikimedia_Commons.jpg/400px-Tour_Eiffel_Wikimedia_Commons.jpg" },
+  { label: "Forest path",         url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/24701-nature-natural-beauty.jpg/400px-24701-nature-natural-beauty.jpg" },
+  { label: "City skyline",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Southwest_corner_of_Central_Park%2C_looking_east%2C_NYC.jpg/400px-Southwest_corner_of_Central_Park%2C_looking_east%2C_NYC.jpg" },
+  { label: "Dog portrait",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/26/YellowLabradorLooking_new.jpg/400px-YellowLabradorLooking_new.jpg" },
+  { label: "Cat on sofa",         url: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/400px-Kittyply_edit1.jpg" },
+  { label: "Fruit bowl",          url: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Good_Food_Display_-_NCI_Visuals_Online.jpg/400px-Good_Food_Display_-_NCI_Visuals_Online.jpg" },
+  { label: "Architecture",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/Colosseum_in_Rome%2C_Italy_-_April_2007.jpg/400px-Colosseum_in_Rome%2C_Italy_-_April_2007.jpg" },
+  { label: "Ocean sunset",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Sunrise_over_the_sea.jpg/400px-Sunrise_over_the_sea.jpg" },
+  { label: "Snowy mountain",      url: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Everest_North_Face_toward_Base_Camp_Tibet_Luca_Galuzzi_2006.jpg/400px-Everest_North_Face_toward_Base_Camp_Tibet_Luca_Galuzzi_2006.jpg" },
+  { label: "Flower macro",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/Sunflower_from_Silesia2.jpg/400px-Sunflower_from_Silesia2.jpg" },
+];
+
+const BORDERLINE_IMAGES = [
+  { label: "Classical sculpture (nudity in art)", url: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Botticelli-primavera.jpg/400px-Botticelli-primavera.jpg" },
+  { label: "Renaissance painting",                url: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg/300px-Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg" },
+  { label: "Swimwear / beach (magazine style)",   url: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Emilio_Pucci_-_2012_Spring-Summer_Collection_%286911558060%29.jpg/400px-Emilio_Pucci_-_2012_Spring-Summer_Collection_%286911558060%29.jpg" },
+  { label: "Yoga / fitness pose",                 url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/10/Ashtanga_yoga.jpg/400px-Ashtanga_yoga.jpg" },
+];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+
+const results = new Map(); // label → { decodeMs, inferenceMs, roundTripMs, verdict, top3 }
+let startTime = null;
+
+// ── DOM build ─────────────────────────────────────────────────────────────────
+
+function buildGrid(containerId, images) {
+  const grid = document.getElementById(containerId);
+  grid.innerHTML = "";
+  for (const img of images) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <img src="${img.url}" crossorigin="anonymous" loading="lazy" alt="${img.label}">
+      <div class="card-label">${img.label}</div>
+      <div class="card-result result-pending" id="result-${slugify(img.label)}">waiting…</div>
+    `;
+    grid.appendChild(card);
+  }
+}
+
+function slugify(s) {
+  return s.replace(/[^a-z0-9]/gi, "-").toLowerCase();
+}
+
+buildGrid("grid-safe", SAFE_IMAGES);
+buildGrid("grid-borderline", BORDERLINE_IMAGES);
+
+// ── Timing harness ────────────────────────────────────────────────────────────
+// BlurGuard's BLUR_DECISION only fires for images the model decides to BLOCK.
+// For "safe" images we won't get a message — so we measure time-to-no-decision
+// by polling. We also inject a MutationObserver to catch the blur overlay.
+
+const sentAt = new Map(); // label → performance.now()
+const decided = new Set();
+
+function runAll() {
+  startTime = performance.now();
+  results.clear();
+  decided.clear();
+
+  const all = [...SAFE_IMAGES, ...BORDERLINE_IMAGES];
+  for (const img of all) {
+    const el = document.querySelector(`img[alt="${img.label}"]`);
+    if (!el) continue;
+    sentAt.set(img.label, performance.now());
+
+    // BlurGuard's content.ts will pick up this image via its MutationObserver /
+    // scanElement flow once it's in the DOM and has loaded. We don't invoke it
+    // directly — we just wait and watch.
+    el.loading = "eager";
+    if (!el.complete) {
+      el.onload = () => scheduleTimeout(img.label, el);
+    } else {
+      scheduleTimeout(img.label, el);
+    }
+  }
+
+  // Poll every 500ms for overlay injection (indicates a BLOCK decision).
+  observeResults();
+
+  // After 15s, mark any undecided images as "no decision = safe/not-blocked".
+  setTimeout(finalise, 15000);
+}
+
+function scheduleTimeout(label, el) {
+  // Nothing to do — BlurGuard's scanner will pick it up. Just record send time.
+  sentAt.set(label, performance.now());
+}
+
+function observeResults() {
+  const observer = new MutationObserver(() => {
+    const all = [...SAFE_IMAGES, ...BORDERLINE_IMAGES];
+    for (const img of all) {
+      if (decided.has(img.label)) continue;
+      const el = document.querySelector(`img[alt="${img.label}"]`);
+      if (!el) continue;
+      const parent = el.parentElement;
+      // BlurGuard wraps the image in a blur overlay container
+      if (parent && (parent.style.filter || parent.querySelector("[data-blurguard]") || getComputedStyle(el).filter !== "none")) {
+        const roundTripMs = Math.round(performance.now() - (sentAt.get(img.label) ?? startTime));
+        markDecided(img.label, "BLOCKED", roundTripMs, el);
+      }
+    }
+  });
+  observer.observe(document.body, { subtree: true, attributes: true, childList: true });
+}
+
+function markDecided(label, verdict, roundTripMs, el) {
+  decided.add(label);
+  const slug = slugify(label);
+  const div = document.getElementById("result-" + slug);
+  if (!div) return;
+
+  const className = verdict === "BLOCKED" ? "result-block" : "result-safe";
+  div.className = "card-result " + className;
+
+  // We can't read inferenceMs/decodeMs from the DOM — those come from the
+  // content-script console log. Show round-trip as the observable number.
+  div.textContent = `${verdict} · ${roundTripMs}ms round-trip`;
+
+  results.set(label, { verdict, roundTripMs });
+  renderSummary();
+}
+
+function finalise() {
+  const all = [...SAFE_IMAGES, ...BORDERLINE_IMAGES];
+  for (const img of all) {
+    if (!decided.has(img.label)) {
+      const roundTripMs = Math.round(performance.now() - (sentAt.get(img.label) ?? startTime));
+      markDecided(img.label, "SAFE (no decision)", roundTripMs, null);
+    }
+  }
+}
+
+function renderSummary() {
+  const lines = [];
+  lines.push("── Set A: Safe images ──────────────────────────────");
+  for (const img of SAFE_IMAGES) {
+    const r = results.get(img.label);
+    if (r) lines.push(`  [${r.verdict === "SAFE (no decision)" ? "✓ ok " : "✗ FP "}] ${img.label.padEnd(30)} ${String(r.roundTripMs + "ms rt").padStart(10)}`);
+  }
+  lines.push("");
+  lines.push("── Set B: Borderline ───────────────────────────────");
+  for (const img of BORDERLINE_IMAGES) {
+    const r = results.get(img.label);
+    if (r) lines.push(`  [${r.verdict === "SAFE (no decision)" ? "✓ ok " : "⚠ FP "}] ${img.label.padEnd(30)} ${String(r.roundTripMs + "ms rt").padStart(10)}`);
+  }
+  lines.push("");
+  lines.push("── Round-trip ms (content-script observed) ─────────");
+  const rts = [...results.values()].map(r => r.roundTripMs).filter(Boolean).sort((a,b)=>a-b);
+  if (rts.length) {
+    const med = rts[Math.floor(rts.length/2)];
+    lines.push(`  min=${rts[0]}ms  median=${med}ms  max=${rts[rts.length-1]}ms  n=${rts.length}`);
+  }
+  lines.push("");
+  lines.push("── To get inferenceMs + decodeMs: ──────────────────");
+  lines.push("  Open offscreen devtools → filter [BlurGuard offscreen]");
+  lines.push('  Copy the "inference →" lines and paste above.');
+
+  document.getElementById("summary-text").textContent = lines.join("\n");
+}
+
+function clearResults() {
+  results.clear();
+  decided.clear();
+  buildGrid("grid-safe", SAFE_IMAGES);
+  buildGrid("grid-borderline", BORDERLINE_IMAGES);
+  document.getElementById("summary-text").textContent = "Run classification first.";
+}
+</script>
+
+<!-- ── Offscreen devtools cheat-sheet ───────────────────────────────────────────
+     Open chrome://extensions → the BlurGuard card → "Service worker" (background) and
+     separately "offscreen" (if visible) or use the inspect link.
+
+     WHAT TO LOOK FOR:
+     ─────────────────
+     In the OFFSCREEN console (inspect from chrome://extensions → offscreen page):
+
+       [BlurGuard offscreen] backend: webgl ✓              ← which GPU path won
+       [BlurGuard offscreen] loading model: chrome-extension://…/models/nsfwjs/model.json
+       [BlurGuard offscreen] model loaded ✓
+       [BlurGuard offscreen] warmup done — OFFSCREEN_READY ✓
+       [BlurGuard offscreen] decode 800×600px → 43ms       ← per image, Phase A
+       [BlurGuard offscreen] inference → 87ms              ← per image, Phase B ← REPORT THIS
+
+     In the SW console (Service worker):
+       [BlurGuard SW] classify done — decode 43ms  inference 87ms
+
+     In the CONTENT SCRIPT console (F12 on this tab):
+       [BlurGuard] id=bg-… inference=87ms decode=43ms round-trip=312ms …
+
+     COLD-START:
+       Time from page load (or extension reload) to "warmup done" appearing.
+       = model-load-ms. Note whether any OFFSCREEN_CLASSIFY arrives before
+         OFFSCREEN_READY — if gating works, you should never see this.
+
+     MEDIAN WARM INFERENCE:
+       Ignore the first classify() result (warmup or first real).
+       Collect images 2–10. Sort. Take the middle value. That's your README number.
+──────────────────────────────────────────────────────────────────────────────── -->
+</body>
+</html>

@@ -220,7 +220,7 @@ async function handleMessage(
       // Ensure the offscreen doc exists before forwarding.
       await ensureOffscreen();
 
-      // Forward to offscreen doc and await the stub/real classify result.
+      // Forward to offscreen doc and await the classify result.
       let raw: ClassifyResultMessage["payload"] | undefined;
       try {
         raw = (await chrome.runtime.sendMessage({
@@ -234,6 +234,10 @@ async function handleMessage(
 
       if (!raw?.predictions?.length) return { ok: true };
 
+      console.log(
+        `[BlurGuard SW] classify done — decode ${raw.decodeMs}ms  inference ${raw.inferenceMs}ms`
+      );
+
       // Map predictions through sensitivity thresholds → Verdict.
       const verdict: Verdict = verdictFromPredictions(
         raw.predictions,
@@ -246,7 +250,7 @@ async function handleMessage(
         chrome.tabs
           .sendMessage(tabId, {
             type: "BLUR_DECISION",
-            payload: { id, verdict, ms: raw.ms },
+            payload: { id, verdict, inferenceMs: raw.inferenceMs, decodeMs: raw.decodeMs },
           })
           .catch(() => {
             // Tab may have navigated away before the round-trip completed.
@@ -256,7 +260,9 @@ async function handleMessage(
       // Persist to feed and push STATE_UPDATED only when blocking, matching the
       // REPORT_DETECTION behavior (content script only reports blocked items).
       if (verdict.shouldBlock) {
-        const nextState = buildNextState(state, id, url, kind, verdict);
+        const nextState = buildNextState(
+          state, id, url, kind, verdict, raw.inferenceMs, raw.decodeMs
+        );
         await chrome.storage.local.set({ blurguard: nextState });
         await notifyPopup(nextState);
       }
@@ -288,7 +294,9 @@ function buildNextState(
   id: string,
   url: string,
   kind: "image" | "video",
-  verdict: Verdict
+  verdict: Verdict,
+  inferenceMs: number,
+  decodeMs: number,
 ): BlurGuardState {
   let domain = "unknown";
   try {
@@ -306,6 +314,8 @@ function buildNextState(
     confidence: verdict.confidence,
     reasons: verdict.reasons,
     timestamp: Date.now(),
+    inferenceMs,
+    decodeMs,
   };
 
   return {

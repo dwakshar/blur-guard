@@ -35,6 +35,8 @@ export interface DetectionEvent {
   confidence: number;
   reasons: string[];
   timestamp: number;
+  inferenceMs: number; // nsfwjs.classify() wall-clock time; 0 when unavailable
+  decodeMs: number;    // fetch + decode wall-clock time; 0 when unavailable
 }
 
 export interface BlurGuardState {
@@ -120,13 +122,14 @@ export interface OffscreenClassifyMessage {
   payload: ClassifyRequestMessage["payload"];
 }
 
-// Step 3 — offscreen → SW: raw nsfwjs predictions + inference wall-clock time.
+// Step 3 — offscreen → SW: raw nsfwjs predictions + split timing.
 export interface ClassifyResultMessage {
   type: "CLASSIFY_RESULT";
   payload: {
     id: string;
     predictions: Prediction[];
-    ms: number;   // nsfwjs.classify() wall-clock time in milliseconds
+    decodeMs: number;    // fetch + blob + createImageBitmap wall-clock time
+    inferenceMs: number; // nsfwjs.classify() wall-clock time only
   };
 }
 
@@ -136,7 +139,8 @@ export interface BlurDecisionMessage {
   payload: {
     id: string;
     verdict: Verdict;
-    ms: number;   // total round-trip from CLASSIFY_REQUEST receipt to BLUR_DECISION send
+    inferenceMs: number; // nsfwjs.classify() wall-clock time only
+    decodeMs: number;    // fetch + blob + createImageBitmap wall-clock time
   };
 }
 
