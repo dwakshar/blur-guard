@@ -2,259 +2,322 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>BlurGuard Phase 1.5 — Validation Page</title>
+  <title>BlurGuard — Bench / Validation</title>
   <style>
-    body { font-family: monospace; max-width: 1100px; margin: 40px auto; background: #0f0f0f; color: #e0e0e0; padding: 0 20px; }
+    body { font-family: monospace; max-width: 1200px; margin: 40px auto; background: #0f0f0f; color: #e0e0e0; padding: 0 20px; }
     h1 { font-size: 14px; color: #aaa; font-weight: normal; margin-bottom: 4px; }
     h2 { font-size: 12px; color: #666; font-weight: normal; margin: 0 0 24px 0; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 32px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-bottom: 28px; }
     .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; overflow: hidden; }
-    .card img { width: 100%; height: 140px; object-fit: cover; display: block; }
-    .card-label { padding: 6px 8px; font-size: 10px; color: #666; }
-    .card-result { padding: 0 8px 8px; font-size: 11px; min-height: 40px; color: #ccc; word-break: break-word; }
+    .card img { width: 100%; height: 130px; object-fit: cover; display: block; }
+    .card-label { padding: 5px 8px; font-size: 10px; color: #666; }
+    .card-result { padding: 0 8px 8px; font-size: 10px; min-height: 36px; color: #ccc; word-break: break-word; line-height: 1.5; }
     .result-pending { color: #444; }
-    .result-safe { color: #4ade80; }
-    .result-flag { color: #f59e0b; }
-    .result-block { color: #f87171; }
-    #summary { background: #111; border: 1px solid #333; border-radius: 6px; padding: 16px; margin-top: 24px; white-space: pre; font-size: 11px; line-height: 1.7; color: #ccc; }
-    #summary h3 { color: #888; font-size: 10px; margin: 0 0 8px 0; font-weight: normal; text-transform: uppercase; letter-spacing: 1px; }
-    button { background: #222; border: 1px solid #444; color: #ccc; padding: 6px 14px; border-radius: 4px; font-size: 11px; font-family: monospace; cursor: pointer; margin-right: 8px; }
+    .result-safe    { color: #4ade80; }
+    .result-flag    { color: #f59e0b; }
+    .result-block   { color: #f87171; }
+    #bench-out { background: #0a0a0a; border: 1px solid #2a2a2a; border-radius: 6px;
+                 padding: 16px; margin-top: 24px; white-space: pre; font-size: 11px;
+                 line-height: 1.8; color: #ccc; min-height: 80px; }
+    button { background: #222; border: 1px solid #444; color: #ccc; padding: 6px 14px;
+             border-radius: 4px; font-size: 11px; font-family: monospace; cursor: pointer;
+             margin-right: 8px; margin-bottom: 12px; }
     button:hover { background: #2a2a2a; }
-    .section-header { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; margin: 28px 0 10px; }
-    .note { font-size: 10px; color: #444; margin-bottom: 8px; }
+    .section-header { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px;
+                      margin: 28px 0 10px; border-bottom: 1px solid #1f1f1f; padding-bottom: 6px; }
+    .note { font-size: 10px; color: #444; margin-bottom: 12px; line-height: 1.6; }
+    details { margin: 24px 0; }
+    summary { font-size: 11px; color: #555; cursor: pointer; }
+    pre.snippet { background: #111; border: 1px solid #2a2a2a; border-radius: 4px;
+                  padding: 14px; font-size: 10px; color: #aaa; overflow-x: auto;
+                  margin: 10px 0 0; line-height: 1.6; }
   </style>
 </head>
 <body>
 
-<h1>BlurGuard — Phase 1.5 Real-Browser Validation</h1>
-<h2>Load this page with the extension active. Images are classified by the real nsfwjs model.</h2>
+<h1>BlurGuard — Phase 2.x Bench / Validation</h1>
+<h2>40 images. Load unpacked from dist/, open this page, click "Classify all", wait 30–60 s.</h2>
 
 <p class="note">
-  Watch the offscreen devtools console for backend/load/timing logs.<br>
-  Each card updates when BlurGuard's BLUR_DECISION arrives (or times out with no decision = safe/not-blocked).
+  Numbers come from the SW service-worker console. Open chrome://extensions → BlurGuard → "Service worker".<br>
+  Filter by <code>[BlurGuard offscreen]</code> to see the per-image verdict lines.<br>
+  After all cards settle, call <code>bench()</code> in that same SW console to print the summary.
 </p>
 
-<button onclick="runAll()">Classify all images</button>
-<button onclick="clearResults()">Clear</button>
+<button onclick="classifyAll()">Classify all (40 images)</button>
+<button onclick="clearAll()">Clear</button>
 
-<div class="section-header">Set A — Known Safe (expect Neutral dominant, nothing blurs)</div>
-<div class="grid" id="grid-safe"></div>
+<div id="bench-out">Waiting for results… (click "Classify all" first)</div>
 
-<div class="section-header">Set B — Borderline / Artistic (expect Neutral or Sexy; note false-positive rate)</div>
-<div class="grid" id="grid-borderline"></div>
+<!-- ── Image sets ─────────────────────────────────────────────────────────────
+     All sourced from Wikimedia Commons (public domain).
+     40 distinct URLs → 40 OFFSCREEN_CLASSIFY messages → real burst of GPU work.
+     None are NSFW; we care about timing, not blocking.
+──────────────────────────────────────────────────────────────────────────── -->
 
-<div id="summary">
-  <h3>Summary — paste back to Claude</h3>
-  <span id="summary-text">Run classification first.</span>
-</div>
+<div class="section-header">Landscapes · Architecture · Nature (20 images)</div>
+<div class="grid" id="grid-a"></div>
+
+<div class="section-header">Animals · Food · People · Misc (20 images)</div>
+<div class="grid" id="grid-b"></div>
 
 <script>
-// ── Image sets ────────────────────────────────────────────────────────────────
-// All sourced from Wikimedia Commons (public domain) or Unsplash (free).
-// Using direct stable URLs — no tracking, no auth.
+// ── Image corpus ──────────────────────────────────────────────────────────────
+// 40 Wikimedia Commons thumbs. Stable direct URLs, public domain.
 
-const SAFE_IMAGES = [
-  { label: "Mountain landscape",  url: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a8/Tour_Eiffel_Wikimedia_Commons.jpg/400px-Tour_Eiffel_Wikimedia_Commons.jpg" },
-  { label: "Forest path",         url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/24701-nature-natural-beauty.jpg/400px-24701-nature-natural-beauty.jpg" },
-  { label: "City skyline",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Southwest_corner_of_Central_Park%2C_looking_east%2C_NYC.jpg/400px-Southwest_corner_of_Central_Park%2C_looking_east%2C_NYC.jpg" },
-  { label: "Dog portrait",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/26/YellowLabradorLooking_new.jpg/400px-YellowLabradorLooking_new.jpg" },
-  { label: "Cat on sofa",         url: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/400px-Kittyply_edit1.jpg" },
-  { label: "Fruit bowl",          url: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Good_Food_Display_-_NCI_Visuals_Online.jpg/400px-Good_Food_Display_-_NCI_Visuals_Online.jpg" },
-  { label: "Architecture",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/Colosseum_in_Rome%2C_Italy_-_April_2007.jpg/400px-Colosseum_in_Rome%2C_Italy_-_April_2007.jpg" },
-  { label: "Ocean sunset",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Sunrise_over_the_sea.jpg/400px-Sunrise_over_the_sea.jpg" },
-  { label: "Snowy mountain",      url: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Everest_North_Face_toward_Base_Camp_Tibet_Luca_Galuzzi_2006.jpg/400px-Everest_North_Face_toward_Base_Camp_Tibet_Luca_Galuzzi_2006.jpg" },
-  { label: "Flower macro",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/Sunflower_from_Silesia2.jpg/400px-Sunflower_from_Silesia2.jpg" },
+const SET_A = [
+  { id: "a01", label: "Eiffel Tower",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a8/Tour_Eiffel_Wikimedia_Commons.jpg/320px-Tour_Eiffel_Wikimedia_Commons.jpg" },
+  { id: "a02", label: "Colosseum",           url: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/Colosseum_in_Rome%2C_Italy_-_April_2007.jpg/320px-Colosseum_in_Rome%2C_Italy_-_April_2007.jpg" },
+  { id: "a03", label: "Central Park NYC",    url: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Southwest_corner_of_Central_Park%2C_looking_east%2C_NYC.jpg/320px-Southwest_corner_of_Central_Park%2C_looking_east%2C_NYC.jpg" },
+  { id: "a04", label: "Everest north face",  url: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Everest_North_Face_toward_Base_Camp_Tibet_Luca_Galuzzi_2006.jpg/320px-Everest_North_Face_toward_Base_Camp_Tibet_Luca_Galuzzi_2006.jpg" },
+  { id: "a05", label: "Ocean sunrise",       url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Sunrise_over_the_sea.jpg/320px-Sunrise_over_the_sea.jpg" },
+  { id: "a06", label: "Sunflower macro",     url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/Sunflower_from_Silesia2.jpg/320px-Sunflower_from_Silesia2.jpg" },
+  { id: "a07", label: "Forest path",         url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/24701-nature-natural-beauty.jpg/320px-24701-nature-natural-beauty.jpg" },
+  { id: "a08", label: "Niagara Falls",       url: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Niagara_falls_from_below.jpg/320px-Niagara_falls_from_below.jpg" },
+  { id: "a09", label: "Grand Canyon",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/aa/Grand_canyon_bright_angel_trail.jpg/320px-Grand_canyon_bright_angel_trail.jpg" },
+  { id: "a10", label: "Venice canal",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/Rialto_bridge_from_the_Grand_Canal_in_Venice.jpg/320px-Rialto_bridge_from_the_Grand_Canal_in_Venice.jpg" },
+  { id: "a11", label: "Sahara desert",       url: "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f6/Sahara_desert.jpg/320px-Sahara_desert.jpg" },
+  { id: "a12", label: "Tokyo street",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Akihabara_dusk_2007.jpg/320px-Akihabara_dusk_2007.jpg" },
+  { id: "a13", label: "Northern lights",     url: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Aurora_Borealis.jpg/320px-Aurora_Borealis.jpg" },
+  { id: "a14", label: "Great Wall",          url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/10/Mutianyu_great_wall.jpg/320px-Mutianyu_great_wall.jpg" },
+  { id: "a15", label: "Machu Picchu",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/Machu_Picchu%2C_Peru.jpg/320px-Machu_Picchu%2C_Peru.jpg" },
+  { id: "a16", label: "Taj Mahal",           url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/Taj_Mahal_%28Edited%29.jpeg/320px-Taj_Mahal_%28Edited%29.jpeg" },
+  { id: "a17", label: "Santorini",           url: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/Santorini-2011-10-12.jpg/320px-Santorini-2011-10-12.jpg" },
+  { id: "a18", label: "Amazon rainforest",   url: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/51/Mangrove_roots_in_Amazon.jpg/320px-Mangrove_roots_in_Amazon.jpg" },
+  { id: "a19", label: "Milky Way galaxy",    url: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/GoldenGateBridge-001.jpg/320px-GoldenGateBridge-001.jpg" },
+  { id: "a20", label: "Golden Gate Bridge",  url: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/GoldenGateBridge-001.jpg/320px-GoldenGateBridge-001.jpg" },
 ];
 
-const BORDERLINE_IMAGES = [
-  { label: "Classical sculpture (nudity in art)", url: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Botticelli-primavera.jpg/400px-Botticelli-primavera.jpg" },
-  { label: "Renaissance painting",                url: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg/300px-Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg" },
-  { label: "Swimwear / beach (magazine style)",   url: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Emilio_Pucci_-_2012_Spring-Summer_Collection_%286911558060%29.jpg/400px-Emilio_Pucci_-_2012_Spring-Summer_Collection_%286911558060%29.jpg" },
-  { label: "Yoga / fitness pose",                 url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/10/Ashtanga_yoga.jpg/400px-Ashtanga_yoga.jpg" },
+const SET_B = [
+  { id: "b01", label: "Yellow Labrador",      url: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/26/YellowLabradorLooking_new.jpg/320px-YellowLabradorLooking_new.jpg" },
+  { id: "b02", label: "Tabby cat",            url: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/320px-Kittyply_edit1.jpg" },
+  { id: "b03", label: "Fruit bowl",           url: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Good_Food_Display_-_NCI_Visuals_Online.jpg/320px-Good_Food_Display_-_NCI_Visuals_Online.jpg" },
+  { id: "b04", label: "Botticelli Primavera", url: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Botticelli-primavera.jpg/320px-Botticelli-primavera.jpg" },
+  { id: "b05", label: "Mona Lisa",            url: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg/213px-Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg" },
+  { id: "b06", label: "Ashtanga yoga",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/10/Ashtanga_yoga.jpg/320px-Ashtanga_yoga.jpg" },
+  { id: "b07", label: "Polar bear",           url: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/Polar_Bear_-_Alaska_%28cropped%29.jpg/320px-Polar_Bear_-_Alaska_%28cropped%29.jpg" },
+  { id: "b08", label: "Red fox",              url: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/Red_Fox_%28Vulpes_vulpes%29_-_British_Wildlife_Centre-3_%288076731176%29.jpg/320px-Red_Fox_%28Vulpes_vulpes%29_-_British_Wildlife_Centre-3_%288076731176%29.jpg" },
+  { id: "b09", label: "Bald eagle",           url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Bald_Eagle_Portrait.jpg/320px-Bald_Eagle_Portrait.jpg" },
+  { id: "b10", label: "Sushi platter",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/60/Sushi_platter.jpg/320px-Sushi_platter.jpg" },
+  { id: "b11", label: "Pizza Margherita",     url: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a3/Eq_it-na_pizza-margherita_sep2005_sml.jpg/320px-Eq_it-na_pizza-margherita_sep2005_sml.jpg" },
+  { id: "b12", label: "Coffee latte art",     url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/A_small_cup_of_coffee.JPG/320px-A_small_cup_of_coffee.JPG" },
+  { id: "b13", label: "Chess board",          url: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/ChessSet.jpg/320px-ChessSet.jpg" },
+  { id: "b14", label: "Guitar closeup",       url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/GuitareClassique5.png/320px-GuitareClassique5.png" },
+  { id: "b15", label: "Old library books",    url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Livros_antigos.JPG/320px-Livros_antigos.JPG" },
+  { id: "b16", label: "Hot air balloon",      url: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Hot_air_balloon.jpg/320px-Hot_air_balloon.jpg" },
+  { id: "b17", label: "Elephant herd",        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/be/June_odd-eyed-cat.jpg/320px-June_odd-eyed-cat.jpg" },
+  { id: "b18", label: "Odd-eyed cat",         url: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/be/June_odd-eyed-cat.jpg/320px-June_odd-eyed-cat.jpg" },
+  { id: "b19", label: "Butterfly macro",      url: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Camponotus_flavomarginatus_ant.jpg/320px-Camponotus_flavomarginatus_ant.jpg" },
+  { id: "b20", label: "Basketball game",      url: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/Basketball.png/320px-Basketball.png" },
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-const results = new Map(); // label → { decodeMs, inferenceMs, roundTripMs, verdict, top3 }
-let startTime = null;
+// Timing collected by intercepting the SW log lines (via the bench() snippet below).
+// On the page side we only measure DOM-observable round-trip time.
+const pageResults = new Map(); // id → { label, sentAt, decisionAt, verdict }
+let totalSent = 0;
+let totalDecided = 0;
 
 // ── DOM build ─────────────────────────────────────────────────────────────────
 
 function buildGrid(containerId, images) {
   const grid = document.getElementById(containerId);
-  grid.innerHTML = "";
+  grid.innerHTML = '';
   for (const img of images) {
-    const card = document.createElement("div");
-    card.className = "card";
+    const card = document.createElement('div');
+    card.className = 'card';
     card.innerHTML = `
-      <img src="${img.url}" crossorigin="anonymous" loading="lazy" alt="${img.label}">
+      <img src="${img.url}" alt="${img.id}" crossorigin="anonymous" loading="lazy">
       <div class="card-label">${img.label}</div>
-      <div class="card-result result-pending" id="result-${slugify(img.label)}">waiting…</div>
+      <div class="card-result result-pending" id="r-${img.id}">queued…</div>
     `;
     grid.appendChild(card);
   }
 }
 
-function slugify(s) {
-  return s.replace(/[^a-z0-9]/gi, "-").toLowerCase();
-}
+buildGrid('grid-a', SET_A);
+buildGrid('grid-b', SET_B);
 
-buildGrid("grid-safe", SAFE_IMAGES);
-buildGrid("grid-borderline", BORDERLINE_IMAGES);
+// ── Classification run ────────────────────────────────────────────────────────
 
-// ── Timing harness ────────────────────────────────────────────────────────────
-// BlurGuard's BLUR_DECISION only fires for images the model decides to BLOCK.
-// For "safe" images we won't get a message — so we measure time-to-no-decision
-// by polling. We also inject a MutationObserver to catch the blur overlay.
+function classifyAll() {
+  pageResults.clear();
+  totalSent = 0;
+  totalDecided = 0;
+  document.getElementById('bench-out').textContent =
+    'Running… watch the SW service-worker console for [BlurGuard offscreen] lines.\n' +
+    'Call bench() in that console after all cards settle.';
 
-const sentAt = new Map(); // label → performance.now()
-const decided = new Set();
+  const all = [...SET_A, ...SET_B];
+  totalSent = all.length;
 
-function runAll() {
-  startTime = performance.now();
-  results.clear();
-  decided.clear();
-
-  const all = [...SAFE_IMAGES, ...BORDERLINE_IMAGES];
   for (const img of all) {
-    const el = document.querySelector(`img[alt="${img.label}"]`);
-    if (!el) continue;
-    sentAt.set(img.label, performance.now());
-
-    // BlurGuard's content.ts will pick up this image via its MutationObserver /
-    // scanElement flow once it's in the DOM and has loaded. We don't invoke it
-    // directly — we just wait and watch.
-    el.loading = "eager";
-    if (!el.complete) {
-      el.onload = () => scheduleTimeout(img.label, el);
-    } else {
-      scheduleTimeout(img.label, el);
-    }
+    pageResults.set(img.id, { label: img.label, sentAt: performance.now(), decisionAt: null, verdict: null });
+    const div = document.getElementById('r-' + img.id);
+    if (div) div.className = 'card-result result-pending';
+    if (div) div.textContent = 'waiting…';
+    // Force eager load — BlurGuard's MutationObserver + scanElement will pick each up.
+    const el = document.querySelector(`img[alt="${img.id}"]`);
+    if (el) el.loading = 'eager';
   }
 
-  // Poll every 500ms for overlay injection (indicates a BLOCK decision).
-  observeResults();
-
-  // After 15s, mark any undecided images as "no decision = safe/not-blocked".
-  setTimeout(finalise, 15000);
+  // Watch DOM for blur overlays (BLOCKED decisions).
+  startObserver();
+  // After 45 s mark undecided as safe/unblocked.
+  setTimeout(finalise, 45_000);
 }
 
-function scheduleTimeout(label, el) {
-  // Nothing to do — BlurGuard's scanner will pick it up. Just record send time.
-  sentAt.set(label, performance.now());
+function clearAll() {
+  pageResults.clear();
+  buildGrid('grid-a', SET_A);
+  buildGrid('grid-b', SET_B);
+  document.getElementById('bench-out').textContent = 'Cleared.';
 }
 
-function observeResults() {
+// ── Observer — detect blur overlays ──────────────────────────────────────────
+
+function startObserver() {
   const observer = new MutationObserver(() => {
-    const all = [...SAFE_IMAGES, ...BORDERLINE_IMAGES];
-    for (const img of all) {
-      if (decided.has(img.label)) continue;
-      const el = document.querySelector(`img[alt="${img.label}"]`);
+    for (const [id, rec] of pageResults) {
+      if (rec.decisionAt !== null) continue;
+      const el = document.querySelector(`img[alt="${id}"]`);
       if (!el) continue;
-      const parent = el.parentElement;
-      // BlurGuard wraps the image in a blur overlay container
-      if (parent && (parent.style.filter || parent.querySelector("[data-blurguard]") || getComputedStyle(el).filter !== "none")) {
-        const roundTripMs = Math.round(performance.now() - (sentAt.get(img.label) ?? startTime));
-        markDecided(img.label, "BLOCKED", roundTripMs, el);
-      }
+      // BlurGuard wraps the img; check for position:relative parent or data attr.
+      const wrap = el.parentElement;
+      const blurred =
+        wrap &&
+        (wrap.dataset.blurguard !== undefined ||
+         getComputedStyle(el).filter !== 'none' ||
+         wrap.querySelector('[style*="blur"]'));
+      if (blurred) markDecided(id, 'BLOCKED');
     }
   });
-  observer.observe(document.body, { subtree: true, attributes: true, childList: true });
+  observer.observe(document.body, { subtree: true, attributes: true, childList: true, attributeFilter: ['style', 'data-blurguard'] });
 }
 
-function markDecided(label, verdict, roundTripMs, el) {
-  decided.add(label);
-  const slug = slugify(label);
-  const div = document.getElementById("result-" + slug);
-  if (!div) return;
+function markDecided(id, verdict) {
+  const rec = pageResults.get(id);
+  if (!rec || rec.decisionAt !== null) return;
+  rec.decisionAt = performance.now();
+  rec.verdict = verdict;
+  totalDecided++;
 
-  const className = verdict === "BLOCKED" ? "result-block" : "result-safe";
-  div.className = "card-result " + className;
-
-  // We can't read inferenceMs/decodeMs from the DOM — those come from the
-  // content-script console log. Show round-trip as the observable number.
-  div.textContent = `${verdict} · ${roundTripMs}ms round-trip`;
-
-  results.set(label, { verdict, roundTripMs });
-  renderSummary();
+  const el = document.getElementById('r-' + id);
+  if (el) {
+    el.className = 'card-result ' + (verdict === 'BLOCKED' ? 'result-block' : 'result-safe');
+    el.textContent = verdict + ' · ' + Math.round(rec.decisionAt - rec.sentAt) + 'ms page-rt';
+  }
 }
 
 function finalise() {
-  const all = [...SAFE_IMAGES, ...BORDERLINE_IMAGES];
-  for (const img of all) {
-    if (!decided.has(img.label)) {
-      const roundTripMs = Math.round(performance.now() - (sentAt.get(img.label) ?? startTime));
-      markDecided(img.label, "SAFE (no decision)", roundTripMs, null);
-    }
+  for (const [id, rec] of pageResults) {
+    if (rec.decisionAt === null) markDecided(id, 'safe');
   }
+  renderPageSummary();
 }
 
-function renderSummary() {
-  const lines = [];
-  lines.push("── Set A: Safe images ──────────────────────────────");
-  for (const img of SAFE_IMAGES) {
-    const r = results.get(img.label);
-    if (r) lines.push(`  [${r.verdict === "SAFE (no decision)" ? "✓ ok " : "✗ FP "}] ${img.label.padEnd(30)} ${String(r.roundTripMs + "ms rt").padStart(10)}`);
-  }
-  lines.push("");
-  lines.push("── Set B: Borderline ───────────────────────────────");
-  for (const img of BORDERLINE_IMAGES) {
-    const r = results.get(img.label);
-    if (r) lines.push(`  [${r.verdict === "SAFE (no decision)" ? "✓ ok " : "⚠ FP "}] ${img.label.padEnd(30)} ${String(r.roundTripMs + "ms rt").padStart(10)}`);
-  }
-  lines.push("");
-  lines.push("── Round-trip ms (content-script observed) ─────────");
-  const rts = [...results.values()].map(r => r.roundTripMs).filter(Boolean).sort((a,b)=>a-b);
-  if (rts.length) {
-    const med = rts[Math.floor(rts.length/2)];
-    lines.push(`  min=${rts[0]}ms  median=${med}ms  max=${rts[rts.length-1]}ms  n=${rts.length}`);
-  }
-  lines.push("");
-  lines.push("── To get inferenceMs + decodeMs: ──────────────────");
-  lines.push("  Open offscreen devtools → filter [BlurGuard offscreen]");
-  lines.push('  Copy the "inference →" lines and paste above.');
+function renderPageSummary() {
+  const rts = [...pageResults.values()]
+    .filter(r => r.decisionAt !== null)
+    .map(r => Math.round(r.decisionAt - r.sentAt))
+    .sort((a, b) => a - b);
+  const med = arr => arr[Math.floor(arr.length / 2)];
 
-  document.getElementById("summary-text").textContent = lines.join("\n");
-}
-
-function clearResults() {
-  results.clear();
-  decided.clear();
-  buildGrid("grid-safe", SAFE_IMAGES);
-  buildGrid("grid-borderline", BORDERLINE_IMAGES);
-  document.getElementById("summary-text").textContent = "Run classification first.";
+  const out = document.getElementById('bench-out');
+  out.textContent = [
+    `Page-side round-trip (content-script observable — includes blur-overlay reaction delay):`,
+    `  n=${rts.length}  min=${rts[0]}ms  median=${med(rts)}ms  max=${rts[rts.length-1]}ms`,
+    ``,
+    `For the REAL inferenceMs / queueWaitMs / latencyMs numbers:`,
+    `  1. Open chrome://extensions → BlurGuard → "Service worker" (devtools)`,
+    `  2. Paste the bench() snippet (expand the details block below) into that console`,
+    `     BEFORE clicking "Classify all" — it wraps console.log to intercept log lines.`,
+    `  3. After all cards settle, call bench() in that same console.`,
+    `  4. Copy the output back here.`,
+  ].join('\n');
 }
 </script>
 
-<!-- ── Offscreen devtools cheat-sheet ───────────────────────────────────────────
-     Open chrome://extensions → the BlurGuard card → "Service worker" (background) and
-     separately "offscreen" (if visible) or use the inspect link.
+<!-- ── SW console bench snippet ──────────────────────────────────────────────
+     Paste into the SERVICE WORKER devtools console BEFORE clicking "Classify all".
+     It wraps console.log to capture every [BlurGuard offscreen] verdict line.
+     Call bench() after all images finish to print the stats.
+──────────────────────────────────────────────────────────────────────────── -->
 
-     WHAT TO LOOK FOR:
-     ─────────────────
-     In the OFFSCREEN console (inspect from chrome://extensions → offscreen page):
+<details>
+<summary>▸ SW console snippet — paste this BEFORE the run, then call bench() after</summary>
+<pre class="snippet">
+// ── BlurGuard bench collector ─────────────────────────────────────────────────
+// Paste into the SERVICE WORKER devtools console (chrome://extensions → BlurGuard → Service worker)
+// BEFORE loading/reloading the test page.
+// After all images settle, call bench() to print median / p95 / worst-case.
 
-       [BlurGuard offscreen] backend: webgl ✓              ← which GPU path won
-       [BlurGuard offscreen] loading model: chrome-extension://…/models/nsfwjs/model.json
-       [BlurGuard offscreen] model loaded ✓
-       [BlurGuard offscreen] warmup done — OFFSCREEN_READY ✓
-       [BlurGuard offscreen] decode 800×600px → 43ms       ← per image, Phase A
-       [BlurGuard offscreen] inference → 87ms              ← per image, Phase B ← REPORT THIS
+(function() {
+  if (window.__bgBenchInstalled) { console.log('[bench] already installed'); return; }
+  window.__bgBenchInstalled = true;
 
-     In the SW console (Service worker):
-       [BlurGuard SW] classify done — decode 43ms  inference 87ms
+  const _inf = [], _queue = [], _decode = [], _lat = [];
+  const _orig = console.log.bind(console);
 
-     In the CONTENT SCRIPT console (F12 on this tab):
-       [BlurGuard] id=bg-… inference=87ms decode=43ms round-trip=312ms …
+  console.log = (...args) => {
+    _orig(...args);
+    const s = args.join(' ');
+    // Matches: [BlurGuard offscreen] id=… verdict=… block=… scores={…} infMs=N queueMs=N decodeMs=N latencyMs=N
+    const m = s.match(/infMs=(\d+)\s+queueMs=(\d+)\s+decodeMs=(\d+)\s+latencyMs=(\d+)/);
+    if (m) {
+      _inf.push(+m[1]);
+      _queue.push(+m[2]);
+      _decode.push(+m[3]);
+      _lat.push(+m[4]);
+    }
+  };
 
-     COLD-START:
-       Time from page load (or extension reload) to "warmup done" appearing.
-       = model-load-ms. Note whether any OFFSCREEN_CLASSIFY arrives before
-         OFFSCREEN_READY — if gating works, you should never see this.
+  window.bench = function() {
+    if (!_inf.length) { _orig('[bench] no data yet — run classification first'); return; }
+    const sorted = arr => [...arr].sort((a, b) => a - b);
+    const med  = arr => { const s = sorted(arr); return s[Math.floor(s.length / 2)]; };
+    const p95  = arr => { const s = sorted(arr); return s[Math.floor(s.length * 0.95)] ?? s[s.length-1]; };
+    const max  = arr => Math.max(...arr);
+    const n    = _inf.length;
+    _orig(
+      `\n╔══ BlurGuard bench  n=${n} images ══════════════════════════════╗\n` +
+      `║  inferenceMs (GPU work)    med=${med(_inf)}ms  p95=${p95(_inf)}ms  max=${max(_inf)}ms\n` +
+      `║  queueWaitMs (serialise)   med=${med(_queue)}ms  p95=${p95(_queue)}ms  max=${max(_queue)}ms\n` +
+      `║  decodeMs    (fetch+draw)  med=${med(_decode)}ms  p95=${p95(_decode)}ms  max=${max(_decode)}ms\n` +
+      `║  latencyMs   (user-perc.)  med=${med(_lat)}ms  p95=${p95(_lat)}ms  max=${max(_lat)}ms\n` +
+      `╠════════════════════════════════════════════════════════════════════╣\n` +
+      `║  Throughput framing:  ~${med(_inf)}ms/image steady-state\n` +
+      `║  Worst-case latency:  ${max(_lat)}ms  (last of ${n} queued)\n` +
+      `║  Staircase check:     inferenceMs spread = ${max(_inf)-Math.min(..._inf)}ms ` +
+              `(should be small; large → staircase not gone)\n` +
+      `╚════════════════════════════════════════════════════════════════════╝`
+    );
+    _orig('[bench] Copy the block above → paste into README Performance section.');
+  };
 
-     MEDIAN WARM INFERENCE:
-       Ignore the first classify() result (warmup or first real).
-       Collect images 2–10. Sort. Take the middle value. That's your README number.
+  _orig('[bench] installed. Run classification, then call bench().');
+})();
+</pre>
+</details>
+
+<!-- ── What to look for ────────────────────────────────────────────────────────
+     OFFSCREEN devtools (chrome://extensions → BlurGuard card → "offscreen" inspect link):
+
+       [BlurGuard offscreen] backend: webgl ✓
+       [BlurGuard offscreen] decode 800×600px → 43ms
+       [BlurGuard offscreen] decode 41ms  queueWait 0ms  inference 87ms   ← after queue
+       [BlurGuard offscreen] coalesced  decode 22ms  inferenceMs=0 (shared) ← dedup hit
+
+     SW devtools (Service worker):
+
+       [BlurGuard offscreen] id=… verdict=safe block=false scores={…} infMs=87 queueMs=0 decodeMs=43 latencyMs=152
+
+     STAIRCASE CHECK:
+       BEFORE queue: inference lines go 90ms, 180ms, 270ms … (N × base).
+       AFTER queue:  inference lines all cluster near the base value (e.g. 85–95ms).
+       queueWait goes up instead: 0ms, 85ms, 170ms … (that's the honest serialisation cost).
 ──────────────────────────────────────────────────────────────────────────────── -->
+
 </body>
 </html>

@@ -35,8 +35,10 @@ export interface DetectionEvent {
   confidence: number;
   reasons: string[];
   timestamp: number;
-  inferenceMs: number; // nsfwjs.classify() wall-clock time; 0 when unavailable
-  decodeMs: number;    // fetch + decode wall-clock time; 0 when unavailable
+  inferenceMs: number;  // nsfwjs.classify() GPU work only; 0 when unavailable
+  queueWaitMs: number;  // time canvas sat waiting for classify() slot; 0 when unavailable
+  decodeMs: number;     // fetch + blob + createImageBitmap; 0 when unavailable
+  latencyMs: number;    // detected → BLUR_DECISION sent (user-perceived); 0 when unavailable
 }
 
 export interface BlurGuardState {
@@ -128,8 +130,9 @@ export interface ClassifyResultMessage {
   payload: {
     id: string;
     predictions: Prediction[];
-    decodeMs: number;    // fetch + blob + createImageBitmap wall-clock time
-    inferenceMs: number; // nsfwjs.classify() wall-clock time only
+    decodeMs: number;     // fetch + blob + createImageBitmap
+    inferenceMs: number;  // nsfwjs.classify() GPU work only
+    queueWaitMs: number;  // canvas-ready → classify() started (serialisation delay)
   };
 }
 
@@ -139,8 +142,10 @@ export interface BlurDecisionMessage {
   payload: {
     id: string;
     verdict: Verdict;
-    inferenceMs: number; // nsfwjs.classify() wall-clock time only
-    decodeMs: number;    // fetch + blob + createImageBitmap wall-clock time
+    decodeMs: number;     // fetch + blob + createImageBitmap
+    inferenceMs: number;  // nsfwjs.classify() GPU work only
+    queueWaitMs: number;  // canvas-ready → classify() started
+    latencyMs: number;    // CLASSIFY_REQUEST received → BLUR_DECISION sent
   };
 }
 

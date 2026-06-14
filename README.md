@@ -138,11 +138,32 @@ Sensitivity changes broadcast immediately to all open tabs.
 
 ---
 
+## Performance
+
+Measured with `test-page.html` (40-image burst) · WebGL backend · warm model.
+
+| Metric | Value | What it means |
+| --- | --- | --- |
+| `inferenceMs` median | **[run bench()]** | Steady-state GPU work per image — throughput |
+| `inferenceMs` p95 | **[run bench()]** | GPU heavy tail |
+| `queueWaitMs` worst-case | **[run bench()]** | Serialisation cost at max burst depth |
+| `latencyMs` worst-case | **[run bench()]** | Last image in a 40-image burst — user-perceived delay |
+
+> ~**Nms**/image on-device (WebGL); bursts queue serially so the last of K images waits
+> ≈ K × N ms — Phase 3 viewport-priority will classify visible images first to cut
+> perceived latency without changing throughput.
+
+To reproduce: load `dist/` unpacked → open `test-page.html` → paste the bench snippet
+from the page's `<details>` block into the SW devtools console → click "Classify all"
+→ call `bench()` when all cards settle.
+
+---
+
 ## Backend Comparison
 
 |               | `pattern`         | `api`                   | `tfjs`                  |
 | ------------- | ----------------- | ----------------------- | ----------------------- |
-| Latency       | Instant (sync)    | ~200ms                  | ~400ms first run        |
+| Latency       | Instant (sync)    | ~200ms                  | steady-state per bench  |
 | Accuracy      | URL-heuristic     | Depends on your model   | NSFW.js neural net      |
 | Privacy       | Full — no network | URL leaves device       | Full — runs on device   |
 | Setup         | None              | Endpoint + optional key | Model URL               |

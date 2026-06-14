@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>BlurGuard — FP/FN Assessment</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: monospace;
+      max-width: 1100px;
+      margin: 40px auto;
+      background: #0c0c0c;
+      color: #ddd;
+      padding: 0 20px;
+      font-size: 12px;
+    }
+
+    h1 {
+      font-size: 13px;
+      color: #999;
+      font-weight: normal;
+      margin-bottom: 2px;
+    }
+
+    h2 {
+      font-size: 11px;
+      color: #555;
+      font-weight: normal;
+      margin: 0 0 20px;
+    }
+
+    .section {
+      margin: 28px 0 10px;
+      font-size: 10px;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid #1e1e1e;
+      padding-bottom: 5px;
+    }
+
+    .note {
+      font-size: 10px;
+      color: #444;
+      line-height: 1.7;
+      margin-bottom: 14px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: #161616;
+      border: 1px solid #252525;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    .card img {
+      width: 100%;
+      height: 140px;
+      object-fit: cover;
+      display: block;
+      background: #1a1a1a;
+    }
+
+    .card-id {
+      padding: 5px 8px 0;
+      font-size: 9px;
+      color: #444;
+    }
+
+    .card-label {
+      padding: 0 8px 4px;
+      font-size: 11px;
+      color: #aaa;
+    }
+
+    .card-truth {
+      padding: 0 8px 4px;
+      font-size: 9px;
+      color: #555;
+      font-style: italic;
+    }
+
+    .card-scores {
+      padding: 0 8px;
+      font-size: 9px;
+      min-height: 32px;
+      color: #666;
+      line-height: 1.7;
+      word-break: break-all;
+    }
+
+    .card-verdict {
+      padding: 4px 8px 8px;
+      font-size: 10px;
+      font-weight: bold;
+    }
+
+    .v-safe {
+      color: #4ade80;
+    }
+
+    .v-suggestive {
+      color: #f59e0b;
+    }
+
+    .v-explicit {
+      color: #f87171;
+    }
+
+    .v-pending {
+      color: #333;
+    }
+
+    .v-fp {
+      color: #f87171;
+      text-decoration: underline;
+    }
+
+    .v-fn {
+      color: #a78bfa;
+      text-decoration: underline;
+    }
+
+    button {
+      background: #1e1e1e;
+      border: 1px solid #383838;
+      color: #ccc;
+      padding: 6px 14px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      margin-right: 8px;
+      margin-bottom: 14px;
+    }
+
+    button:hover {
+      background: #262626;
+    }
+
+    #table-out {
+      background: #080808;
+      border: 1px solid #222;
+      border-radius: 5px;
+      padding: 14px;
+      margin-top: 20px;
+      white-space: pre;
+      font-size: 10px;
+      color: #aaa;
+      min-height: 100px;
+      overflow-x: auto;
+      line-height: 1.6;
+    }
+
+    .placeholder {
+      height: 140px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: #2a2a2a;
+      text-align: center;
+      padding: 8px;
+    }
+
+    details {
+      margin: 18px 0;
+    }
+
+    summary {
+      font-size: 11px;
+      color: #555;
+      cursor: pointer;
+      padding: 4px 0;
+    }
+
+    pre.snippet {
+      background: #0a0a0a;
+      border: 1px solid #222;
+      border-radius: 4px;
+      padding: 14px;
+      font-size: 10px;
+      color: #999;
+      overflow-x: auto;
+      margin: 8px 0 0;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h1>BlurGuard — Phase 2.3 FP/FN Assessment</h1>
+  <h2>20-image labeled set · reads verdict logs · auto-builds Markdown table</h2>
+
+  <p class="note">
+    <strong>Setup:</strong> Load <code>dist/</code> unpacked. Open this file in Chrome (content script fires on
+    all_urls).<br>
+    Open chrome://extensions → BlurGuard → <strong>Service worker</strong> devtools.<br>
+    Paste the SW snippet (below) <em>before</em> clicking Classify. After all cards settle, call <code>fpTable()</code>.
+  </p>
+
+  <button onclick="classifyAll()">Classify all</button>
+  <button onclick="clearAll()">Clear</button>
+
+  <div id="table-out">Paste the SW snippet, click Classify, then call fpTable() in the SW console.</div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════
+     IMAGE CORPUS
+     ══════════════════════════════════════════════════════════════════════════
+     Ground-truth labels:
+       safe     → should produce verdict=safe, block=false
+       edge     → unclear ground truth; we're MEASURING to discover the model's opinion
+       explicit → should produce verdict=explicit, block=true (FN if not)
+
+     NSFWJS thresholds at "balanced" sensitivity (from classifier.ts):
+       Porn + Hentai ≥ 0.90  → explicit, always blocked
+       Sexy          ≥ 0.72  → suggestive, blocked
+       Sexy          ≥ 0.58  → suggestive, NOT blocked (still a quality signal worth noting)
+     ══════════════════════════════════════════════════════════════════════════ -->
+
+  <script>
+    // ── Image corpus ──────────────────────────────────────────────────────────────
+    // id:    unique key — SW snippet maps id → row in the table
+    // label: human-readable description
+    // truth: ground-truth expectation (safe | edge | explicit)
+    // note:  what we're specifically watching for
+
+    const IMAGES = [
+      // ── Set A: Known-safe ─────────────────────────────────────────────────────
+      // All Wikimedia Commons 320px thumbnails. These exact filenames are used in
+      // test-page.html and confirmed to load correctly.
+      {
+        id: "safe-01", label: "Mountain landscape (Everest)", truth: "safe",
+        note: "No people, no skin — Neutral should dominate",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Everest_North_Face_toward_Base_Camp_Tibet_Luca_Galuzzi_2006.jpg/320px-Everest_North_Face_toward_Base_Camp_Tibet_Luca_Galuzzi_2006.jpg",
+      },
+      {
+        id: "safe-02", label: "Dog portrait (Yellow Lab)", truth: "safe",
+        note: "Animal, no context cues — baseline Neutral",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/26/YellowLabradorLooking_new.jpg/320px-YellowLabradorLooking_new.jpg",
+      },
+      {
+        id: "safe-03", label: "Food display (NCI)", truth: "safe",
+        note: "Food still life — should be Neutral or Drawing",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Good_Food_Display_-_NCI_Visuals_Online.jpg/320px-Good_Food_Display_-_NCI_Visuals_Online.jpg",
+      },
+      {
+        id: "safe-04", label: "Architecture (Colosseum)", truth: "safe",
+        note: "No people — pure architectural content",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/Colosseum_in_Rome%2C_Italy_-_April_2007.jpg/320px-Colosseum_in_Rome%2C_Italy_-_April_2007.jpg",
+      },
+      {
+        id: "safe-05", label: "Clothed portrait (Obama UN speech)", truth: "safe",
+        note: "Fully clothed, professional context — safest person image",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Barack_Obama_addresses_United_Nations_General_Assembly_%28cropped%29.jpg/320px-Barack_Obama_addresses_United_Nations_General_Assembly_%28cropped%29.jpg",
+      },
+      {
+        id: "safe-06", label: "Nature / forest scenery", truth: "safe",
+        note: "No people — pure nature",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/24701-nature-natural-beauty.jpg/320px-24701-nature-natural-beauty.jpg",
+      },
+      {
+        id: "safe-07", label: "Ocean sunrise", truth: "safe",
+        note: "No people, pure scenery",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Sunrise_over_the_sea.jpg/320px-Sunrise_over_the_sea.jpg",
+      },
+      {
+        id: "safe-08", label: "City park (Central Park NYC)", truth: "safe",
+        note: "Urban landscape with distant people",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Southwest_corner_of_Central_Park%2C_looking_east%2C_NYC.jpg/320px-Southwest_corner_of_Central_Park%2C_looking_east%2C_NYC.jpg",
+      },
+      {
+        id: "safe-09", label: "Vitruvian Man (da Vinci)", truth: "safe",
+        note: "Nude male figure as anatomical diagram — also an interesting edge: art nudity in 'safe' set",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/22/Da_Vinci_Vitruve_Luc_Viatour.jpg/320px-Da_Vinci_Vitruve_Luc_Viatour.jpg",
+      },
+      {
+        id: "safe-10", label: "Fashion show (Emilio Pucci, clothed)", truth: "safe",
+        note: "Models in colourful dresses — tests Sexy suppression on clothed runway figures",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Emilio_Pucci_-_2012_Spring-Summer_Collection_%286911558060%29.jpg/320px-Emilio_Pucci_-_2012_Spring-Summer_Collection_%286911558060%29.jpg",
+      },
+
+      // ── Set B: Edge cases ─────────────────────────────────────────────────────
+      // All Wikimedia 320px, content matches label exactly.
+      {
+        id: "edge-01", label: "Yoga pose (Ashtanga, tight sportswear)", truth: "edge",
+        note: "CLASSIC NSFWJS FP — tight fitness clothing inflates Sexy; watch for Sexy ≥ 0.58",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/10/Ashtanga_yoga.jpg/320px-Ashtanga_yoga.jpg",
+      },
+      {
+        id: "edge-02", label: "Botticelli Primavera (semi-clothed figures)", truth: "edge",
+        note: "Classical painting with lightly-clothed female figures — Sexy/Hentai may spike",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3c/Botticelli_Primavera_%28detail%29.jpg/320px-Botticelli_Primavera_%28detail%29.jpg",
+      },
+      {
+        id: "edge-03", label: "Botticelli Birth of Venus (full nude, classical)", truth: "edge",
+        note: "Full nude female figure in classical art — Hentai likely spikes",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/26/Sandro_Botticelli_-_La_nascita_di_Venere_-_Google_Art_Project_-_edited.jpg/320px-Sandro_Botticelli_-_La_nascita_di_Venere_-_Google_Art_Project_-_edited.jpg",
+      },
+      {
+        id: "edge-04", label: "Michelangelo's David (nude sculpture)", truth: "edge",
+        note: "Nude male sculpture — tests whether Porn fires on non-photographic nudity",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Michelangelo%27s_David_-_right_view_2.jpg/320px-Michelangelo%27s_David_-_right_view_2.jpg",
+      },
+      {
+        id: "edge-05", label: "Mona Lisa (portrait, fully clothed)", truth: "edge",
+        note: "Famous portrait — sanity check that art context alone doesn't trigger anything",
+        url: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg/320px-Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg",
+      },
+
+      // ── Set C: Known-explicit (should ALL produce block=true — FN if not) ─────
+      // Add your own explicit image URLs below. Do NOT commit explicit URLs to git.
+      // Example placeholder format:
+      //   { id: "nsfw-01", label: "Explicit test 1", truth: "explicit", note: "Porn-dominant expected", url: "YOUR_URL_HERE" },
+      //
+      // If you leave these as placeholders, the snippet will note them as "no data (placeholder)"
+      // in the table and skip them from the FN count.
+      {
+        id: "nsfw-01", label: "[explicit test 1 — add URL]", truth: "explicit",
+        note: "Add a URL here. Expected: Porn+Hentai ≥ 0.90, block=true",
+        url: "",
+      },
+      {
+        id: "nsfw-02", label: "[explicit test 2 — add URL]", truth: "explicit",
+        note: "Add a URL here. Expected: Porn+Hentai ≥ 0.90, block=true",
+        url: "",
+      },
+      {
+        id: "nsfw-03", label: "[explicit test 3 — add URL]", truth: "explicit",
+        note: "Hentai-dominant; tests if Hentai+Porn combined clears threshold",
+        url: "",
+      },
+      {
+        id: "nsfw-04", label: "[soft explicit / borderline — add URL]", truth: "explicit",
+        note: "Near-threshold explicit — tests whether threshold is tight enough",
+        url: "",
+      },
+      {
+        id: "nsfw-05", label: "[explicit test 5 — add URL]", truth: "explicit",
+        note: "Add a URL here.",
+        url: "",
+      },
+    ];
+
+    // Export corpus to window so SW snippet can access it via window.__fpCorpus.
+    // The SW snippet runs in a DIFFERENT context (service worker) and cannot read this
+    // window object directly — the mapping is embedded in the snippet itself.
+    // We expose it for debugging from the page console.
+    window.__fpCorpus = IMAGES;
+
+    // ── DOM build ─────────────────────────────────────────────────────────────────
+
+    function build() {
+      document.getElementById('grid-safe').innerHTML = '';
+      document.getElementById('grid-edge').innerHTML = '';
+      document.getElementById('grid-explicit').innerHTML = '';
+
+      for (const img of IMAGES) {
+        const group = img.truth === 'safe' ? 'grid-safe'
+          : img.truth === 'edge' ? 'grid-edge'
+            : 'grid-explicit';
+
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.id = 'card-' + img.id;
+        card.innerHTML = img.url
+          ? `<img src="${img.url}" alt="${img.id}" crossorigin="anonymous" loading="lazy">`
+          : `<div class="placeholder">add URL to enable<br><code>${img.id}</code></div>`;
+        card.innerHTML += `
+      <div class="card-id">${img.id}</div>
+      <div class="card-label">${img.label}</div>
+      <div class="card-truth">${img.truth} · ${img.note}</div>
+      <div class="card-scores v-pending" id="scores-${img.id}">waiting…</div>
+      <div class="card-verdict v-pending" id="verdict-${img.id}"></div>
+    `;
+        document.getElementById(group).appendChild(card);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', build);
+
+    // ── Page-side classification trigger ─────────────────────────────────────────
+    // The content script picks up images via its MutationObserver; we just ensure
+    // all images are eager-loaded so they're in the DOM and fully loaded.
+
+    function classifyAll() {
+      document.getElementById('table-out').textContent =
+        'Running…\nWatch SW console for [BlurGuard offscreen] lines, then call fpTable().';
+
+      for (const img of IMAGES) {
+        if (!img.url) continue;
+        const el = document.querySelector(`img[alt="${img.id}"]`);
+        if (el) el.loading = 'eager';
+        document.getElementById('scores-' + img.id).textContent = 'queued…';
+        document.getElementById('verdict-' + img.id).textContent = '';
+      }
+    }
+
+    function clearAll() {
+      build();
+      document.getElementById('table-out').textContent = 'Cleared.';
+    }
+  </script>
+
+  <div class="section">Set A — Known-safe (10 images · expect block=false for all)</div>
+  <div class="grid" id="grid-safe"></div>
+
+  <div class="section">Set B — Edge cases (5 images · ground truth ambiguous)</div>
+  <div class="grid" id="grid-edge"></div>
+
+  <div class="section">Set C — Known-explicit (5 placeholders · add your own URLs · expect block=true)</div>
+  <p class="note">Set C URLs are intentionally left blank. Add your own test URLs directly in the <code>IMAGES</code>
+    array in this file's <code>&lt;script&gt;</code> tag. Do not commit explicit URLs to git.</p>
+  <div class="grid" id="grid-explicit"></div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════
+     SW CONSOLE SNIPPET
+     Paste into the SERVICE WORKER devtools console BEFORE clicking Classify.
+     It intercepts every [BlurGuard offscreen] verdict line and, when you call
+     fpTable(), prints a Markdown table ready to paste into docs.
+     ══════════════════════════════════════════════════════════════════════════ -->
+
+  <details open>
+    <summary>▸ SW console snippet — paste BEFORE clicking Classify, then call fpTable()</summary>
+    <pre class="snippet">
+// ── BlurGuard FP/FN Assessment — SW snippet ───────────────────────────────────
+// Paste into SERVICE WORKER devtools console BEFORE clicking "Classify all".
+// After cards settle, call fpTable() to print the assessment Markdown table.
+
+(function() {
+  if (window.__fpInstalled) { console.log('[fp] already installed'); return; }
+  window.__fpInstalled = true;
+
+  // ── Image corpus (mirrors test-fp.html IMAGES array) ──────────────────────
+  // Update this if you change IDs or labels in the HTML file.
+  const CORPUS = [
+    { id: "safe-01", label: "Mountain landscape (Everest)",           truth: "safe"     },
+    { id: "safe-02", label: "Dog portrait (Yellow Lab)",              truth: "safe"     },
+    { id: "safe-03", label: "Food display (NCI)",                     truth: "safe"     },
+    { id: "safe-04", label: "Architecture (Colosseum)",               truth: "safe"     },
+    { id: "safe-05", label: "Clothed portrait (Obama UN speech)",     truth: "safe"     },
+    { id: "safe-06", label: "Nature / forest scenery",                truth: "safe"     },
+    { id: "safe-07", label: "Ocean sunrise",                          truth: "safe"     },
+    { id: "safe-08", label: "City park (Central Park NYC)",           truth: "safe"     },
+    { id: "safe-09", label: "Vitruvian Man (da Vinci)",               truth: "safe"     },
+    { id: "safe-10", label: "Fashion show (Emilio Pucci, clothed)",   truth: "safe"     },
+    { id: "edge-01", label: "Yoga pose (Ashtanga, tight sportswear)", truth: "edge"     },
+    { id: "edge-02", label: "Botticelli Primavera (semi-clothed)",    truth: "edge"     },
+    { id: "edge-03", label: "Botticelli Birth of Venus (nude)",       truth: "edge"     },
+    { id: "edge-04", label: "Michelangelo's David (nude sculpture)",  truth: "edge"     },
+    { id: "edge-05", label: "Mona Lisa (fully clothed, sanity)",      truth: "edge"     },
+    { id: "nsfw-01", label: "[explicit 1]",                           truth: "explicit" },
+    { id: "nsfw-02", label: "[explicit 2]",                           truth: "explicit" },
+    { id: "nsfw-03", label: "[explicit 3]",                           truth: "explicit" },
+    { id: "nsfw-04", label: "[borderline explicit]",                  truth: "explicit" },
+    { id: "nsfw-05", label: "[explicit 5]",                           truth: "explicit" },
+  ];
+
+  // id → corpus entry
+  const byId = new Map(CORPUS.map(c => [c.id, c]));
+  // id → captured verdict data
+  const captured = new Map();
+
+  // ── Intercept console.log ─────────────────────────────────────────────────
+  // Log line format (from background.ts):
+  //   [BlurGuard offscreen] id=<id> verdict=<cat> block=<bool>
+  //     scores={Porn:N,Hentai:N,Sexy:N,Neutral:N,Drawing:N}
+  //     infMs=N queueMs=N decodeMs=N latencyMs=N
+
+  const _orig = console.log.bind(console);
+  console.log = (...args) => {
+    _orig(...args);
+    const s = args.join(' ');
+    if (!s.includes('[BlurGuard offscreen]') || !s.includes('id=')) return;
+
+    const id      = (s.match(/\bid=(\S+)/))?.[1];
+    const verdict = (s.match(/verdict=(\w+)/))?.[1];
+    const block   = s.includes('block=true');
+    const porn    = parseFloat((s.match(/Porn:([\d.]+)/))?.[1] ?? '0');
+    const hentai  = parseFloat((s.match(/Hentai:([\d.]+)/))?.[1] ?? '0');
+    const sexy    = parseFloat((s.match(/Sexy:([\d.]+)/))?.[1] ?? '0');
+    const neutral = parseFloat((s.match(/Neutral:([\d.]+)/))?.[1] ?? '0');
+    const drawing = parseFloat((s.match(/Drawing:([\d.]+)/))?.[1] ?? '0');
+    const infMs   = parseInt((s.match(/infMs=(\d+)/))?.[1] ?? '0', 10);
+
+    if (id && byId.has(id)) {
+      captured.set(id, { id, verdict, block, porn, hentai, sexy, neutral, drawing, infMs });
+      _orig(`[fp] captured ${id} → verdict=${verdict} block=${block} Porn=${porn.toFixed(3)} Sexy=${sexy.toFixed(3)}`);
+    }
+  };
+
+  // ── fpTable() — call after all images finish ──────────────────────────────
+  window.fpTable = function() {
+    const fmt = n => n.toFixed(3).replace(/^0/, '');  // .xxx
+    const pct = n => (n * 100).toFixed(1) + '%';
+
+    // ── Markdown table ────────────────────────────────────────────────────
+    const rows = [];
+    let fpCount = 0, fnCount = 0, tpCount = 0, tnCount = 0;
+
+    rows.push('| # | ID | Label | Truth | Porn | Hentai | Sexy | Neutral | Drawing | Verdict | Block | Correct? | Error type |');
+    rows.push('|---|----|----|----|----|----|----|----|----|----|----|----|----|');
+
+    let n = 0;
+    for (const c of CORPUS) {
+      n++;
+      const d = captured.get(c.id);
+      if (!d) {
+        const placeholder = c.id.startsWith('nsfw') ? 'no URL (placeholder)' : 'no data yet';
+        rows.push(`| ${n} | ${c.id} | ${c.label} | ${c.truth} | — | — | — | — | — | — | — | — | ${placeholder} |`);
+        continue;
+      }
+
+      // Correctness logic:
+      //   safe  truth → correct if block=false
+      //   edge  truth → no ground truth; note the verdict, no error count
+      //   explicit truth → correct if block=true
+      let correct = '—';
+      let errorType = '';
+
+      if (c.truth === 'safe') {
+        if (!d.block) {
+          correct = '✓';
+          tnCount++;
+        } else {
+          correct = '✗';
+          fpCount++;
+          errorType = d.verdict === 'explicit'
+            ? '🔴 FP (safe→explicit)'
+            : '🟠 FP (safe→suggestive-blocked)';
+        }
+        // Non-blocked suggestive on a safe image: still worth flagging as a quality signal
+        if (!d.block && d.verdict === 'suggestive') {
+          errorType = '🟡 suggestive (not blocked)';
+        }
+      } else if (c.truth === 'explicit') {
+        if (d.block) {
+          correct = '✓';
+          tpCount++;
+        } else {
+          correct = '✗';
+          fnCount++;
+          errorType = '🟣 FN (explicit→safe/not-blocked)';
+        }
+      } else {
+        // edge — just report what the model said, no error classification
+        correct = 'edge';
+        errorType = d.block ? '⚠ blocked' : d.verdict !== 'safe' ? '⚠ flagged (not blocked)' : '';
+      }
+
+      rows.push(
+        `| ${n} | ${c.id} | ${c.label} | ${c.truth} ` +
+        `| ${fmt(d.porn)} | ${fmt(d.hentai)} | ${fmt(d.sexy)} ` +
+        `| ${fmt(d.neutral)} | ${fmt(d.drawing)} ` +
+        `| **${d.verdict}** | ${d.block ? '**YES**' : 'no'} ` +
+        `| ${correct} | ${errorType} |`
+      );
+    }
+
+    // ── Summary ───────────────────────────────────────────────────────────
+    const n_safe     = CORPUS.filter(c => c.truth === 'safe').length;
+    const n_explicit = CORPUS.filter(c => c.truth === 'explicit' && captured.has(c.id)).length;
+
+    _orig('\n' + rows.join('\n'));
+    _orig([
+      '',
+      '## FP/FN Summary',
+      '',
+      `- **False positives (safe→blocked):** ${fpCount} / ${n_safe}`,
+      `- **False negatives (explicit→not-blocked):** ${fnCount} / ${n_explicit || '?'} (add explicit URLs to measure)`,
+      `- **True negatives (safe correctly passed):** ${tnCount} / ${n_safe}`,
+      `- **True positives (explicit correctly blocked):** ${tpCount} / ${n_explicit || '?'}`,
+      '',
+      '### Edge-case observations',
+    ].join('\n'));
+
+    // Print edge-case verdicts individually for manual annotation
+    for (const c of CORPUS.filter(c => c.truth === 'edge')) {
+      const d = captured.get(c.id);
+      if (!d) { _orig(`  - ${c.id} (${c.label}): no data`); continue; }
+      const dominant = ['Porn','Hentai','Sexy','Neutral','Drawing']
+        .map(k => ({ k, v: d[k.toLowerCase()] }))
+        .sort((a,b) => b.v - a.v)[0];
+      _orig(`  - ${c.id} (${c.label}): dominant=${dominant.k} ${pct(dominant.v)}  verdict=${d.verdict}  block=${d.block}`);
+    }
+
+    _orig('\n[fp] Copy the table above → paste into your assessment doc / 2.4 tuning notes.');
+  };
+
+  _orig('[fp] installed. Classify images, then call fpTable().');
+})();
+</pre>
+  </details>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════
+     INTERPRETATION GUIDE
+     ══════════════════════════════════════════════════════════════════════════
+
+  THRESHOLDS at "balanced" sensitivity (classifier.ts):
+    explicitThreshold           = 0.90   (Porn + Hentai combined)
+    suggestiveThreshold         = 0.58   (Sexy alone)
+    suggestiveBlockThreshold    = 0.72   (Sexy alone, to actually BLOCK)
+
+  WHAT TO LOOK FOR:
+
+  ── Set A (known-safe) ──
+    Any block=true is a FP. Severity:
+      🔴 block=true + verdict=explicit  → worst case (false explicit)
+      🟠 block=true + verdict=suggestive → serious FP (Sexy ≥ 0.72)
+      🟡 verdict=suggestive, block=false → model is suspicious but doesn't act
+         Sexy in [0.58, 0.72) → "suggestive" label without blur. Quality signal.
+
+  ── Set B (edge) ──
+    These have no ground truth. Record the verdict and annotate manually.
+    What we specifically expect from NSFWJS's known behaviour:
+      edge-01 (yoga/sportswear):     Sexy likely 0.20–0.55. Tight clothing — classic NSFWJS FP vector.
+      edge-02 (Botticelli Primavera): Sexy/Hentai may spike. Lightly-clothed classical figures.
+      edge-03 (Birth of Venus):      Hentai likely 0.15–0.50. Full nude in classical painting.
+      edge-04 (David sculpture):     Porn likely 0.10–0.40. Nude male, sculpture not photo.
+      edge-05 (Mona Lisa):           Should be Neutral-dominant. Fully clothed portrait sanity check.
+    If any edge case is BLOCKED: that's the tuning target for Phase 2.4.
+
+  ── Set C (known-explicit) ──
+    Any block=false is a FN. If Porn+Hentai < 0.90 but image IS explicit,
+    the threshold may be too high.
+
+  ── DOMINANT ERROR MODE ──
+    After running, identify the pattern:
+      "Sexy fires on clothing" → FP type: safe images with Sexy 0.58–0.72+
+      "Hentai fires on art"    → FP type: classical art triggers explicit classification
+      "FN on soft explicit"    → model misses near-threshold content
+    That 2-line diagnosis is the 2.4 input.
+    ══════════════════════════════════════════════════════════════════════════ -->
+
+</body>
+
+</html>

@@ -26,57 +26,81 @@ const DEFAULT_STATE: BlurGuardState = {
 
 // ── Offscreen document lifecycle ──────────────────────────────────────────────
 // Only one offscreen doc may exist per extension at a time (Chrome limit).
-// offscreenCreating serializes concurrent ensureOffscreen() calls so we never
-// call createDocument() twice in the same SW lifetime.
+// offscreenCreating serializes concurrent createDocument() calls.
+// offscreenReady tracks whether the current doc has completed model init and
+// responded OFFSCREEN_READY to a PING — reset whenever a new doc is created.
 
 let offscreenCreating: Promise<void> | null = null;
+let offscreenReady = false;
 
 async function ensureOffscreen(): Promise<void> {
-  // getContexts is the canonical check; hasDocument() was removed from the spec.
   const existing = await chrome.runtime.getContexts({
     contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
   });
   if (existing.length > 0) return;
 
-  // If another concurrent call already started creation, await it.
+  // New doc being created — must re-confirm readiness after JS loads.
+  offscreenReady = false;
+
   if (offscreenCreating) {
     await offscreenCreating;
     return;
   }
 
-  offscreenCreating = chrome.offscreen
-    .createDocument({
-      url: "offscreen.html",
-      // BLOBS: we fetch image bytes and call blob() on the Response.
-      // DOM_SCRAPING: createImageBitmap + canvas drawing for ML preprocessing.
-      // No explicit canvas/WebGL reason exists in the API; DOM_SCRAPING is the
-      // accepted stand-in for ML workloads (see Chrome extension samples).
-      reasons: [
-        chrome.offscreen.Reason.BLOBS,
-        chrome.offscreen.Reason.DOM_SCRAPING,
-      ],
-      justification:
-        "Fetch image bytes as Blob and decode via createImageBitmap for ML inference " +
-        "using canvas and WebGL — contexts unavailable in the service worker.",
-    })
-    .catch((err: unknown) => {
-      // If the SW was terminated and restarted mid-flight, Chrome may report
-      // "Only a single offscreen document may be created" even though our
-      // getContexts check above returned 0. Treat this as success.
-      if (
-        err instanceof Error &&
-        err.message.includes("Only a single offscreen")
-      ) {
-        return;
-      }
-      throw err;
-    });
+  // JS is single-threaded: after `await getContexts()` resolves, this block runs
+  // synchronously until `await offscreenCreating` below. Any concurrent caller
+  // that reaches here will see `offscreenCreating` already set and take the
+  // `await offscreenCreating` path above. The "Only a single offscreen document"
+  // error therefore cannot fire in normal operation; no defensive catch needed.
+  offscreenCreating = chrome.offscreen.createDocument({
+    url: "offscreen.html",
+    // BLOBS: we fetch image bytes and call blob() on the Response.
+    // DOM_SCRAPING: createImageBitmap + canvas drawing for ML preprocessing.
+    // No explicit canvas/WebGL reason exists in the API; DOM_SCRAPING is the
+    // accepted stand-in for ML workloads (see Chrome extension samples).
+    reasons: [
+      chrome.offscreen.Reason.BLOBS,
+      chrome.offscreen.Reason.DOM_SCRAPING,
+    ],
+    justification:
+      "Fetch image bytes as Blob and decode via createImageBitmap for ML inference " +
+      "using canvas and WebGL — contexts unavailable in the service worker.",
+  });
 
   try {
     await offscreenCreating;
   } finally {
     offscreenCreating = null;
   }
+}
+
+// Poll OFFSCREEN_PING until the offscreen doc responds OFFSCREEN_READY.
+// The gap between createDocument() resolving and the offscreen JS setting up its
+// message listener is real and causes "Receiving end does not exist" if we
+// send OFFSCREEN_CLASSIFY immediately. Model load + warmup can take 5–15 s
+// cold, so the timeout is generous.
+async function waitForOffscreenReady(): Promise<void> {
+  if (offscreenReady) return;
+
+  const INTERVAL_MS = 300;
+  const TIMEOUT_MS = 30_000;
+  const deadline = Date.now() + TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    try {
+      const res = await chrome.runtime.sendMessage({ type: "OFFSCREEN_PING" });
+      if ((res as { type?: string })?.type === "OFFSCREEN_READY") {
+        offscreenReady = true;
+        console.log("[BlurGuard SW] offscreen ready ✓");
+        return;
+      }
+    } catch {
+      // Listener not yet registered — offscreen JS still loading. Keep polling.
+    }
+    await new Promise<void>((r) => setTimeout(r, INTERVAL_MS));
+  }
+
+  throw new Error("[BlurGuard SW] offscreen did not become ready within 30 s");
 }
 
 // ── Message listener ──────────────────────────────────────────────────────────
@@ -179,6 +203,10 @@ async function handleMessage(
         confidence: detection.confidence,
         reasons: detection.reasons,
         timestamp: Date.now(),
+        inferenceMs: 0,   // REPORT_DETECTION originates from content script, no offscreen timing
+        queueWaitMs: 0,
+        decodeMs: 0,
+        latencyMs: 0,
       };
 
       const nextState: BlurGuardState = {
@@ -210,6 +238,10 @@ async function handleMessage(
     // ── Inference pipeline ────────────────────────────────────────────────────
 
     case "CLASSIFY_REQUEST": {
+      // tDetected: the moment the content script's observation reached the SW.
+      // latencyMs = tDetected → BLUR_DECISION sent = what the user/feed perceives.
+      const tDetected = performance.now();
+
       const state = await getState();
       if (!state.enabled || state.pausedUntil > Date.now()) {
         return { ok: true };
@@ -217,8 +249,10 @@ async function handleMessage(
 
       const { id, url, kind } = message.payload;
 
-      // Ensure the offscreen doc exists before forwarding.
+      // Ensure the offscreen doc exists AND its model is loaded + warmed.
+      // waitForOffscreenReady() is a no-op on the warm path (offscreenReady===true).
       await ensureOffscreen();
+      await waitForOffscreenReady();
 
       // Forward to offscreen doc and await the classify result.
       let raw: ClassifyResultMessage["payload"] | undefined;
@@ -234,14 +268,20 @@ async function handleMessage(
 
       if (!raw?.predictions?.length) return { ok: true };
 
-      console.log(
-        `[BlurGuard SW] classify done — decode ${raw.decodeMs}ms  inference ${raw.inferenceMs}ms`
-      );
-
       // Map predictions through sensitivity thresholds → Verdict.
       const verdict: Verdict = verdictFromPredictions(
         raw.predictions,
         state.sensitivity
+      );
+
+      const latencyMs = Math.round(performance.now() - tDetected);
+
+      // Per-image verdict log — all three timing numbers in one place.
+      const s = Object.fromEntries(raw.predictions.map((p) => [p.className, p.probability.toFixed(3)]));
+      console.log(
+        `[BlurGuard offscreen] id=${id} verdict=${verdict.category} block=${verdict.shouldBlock}` +
+        ` scores={Porn:${s.Porn},Hentai:${s.Hentai},Sexy:${s.Sexy},Neutral:${s.Neutral},Drawing:${s.Drawing}}` +
+        ` infMs=${raw.inferenceMs} queueMs=${raw.queueWaitMs} decodeMs=${raw.decodeMs} latencyMs=${latencyMs}`
       );
 
       // Send BLUR_DECISION to the originating tab's content script.
@@ -250,7 +290,14 @@ async function handleMessage(
         chrome.tabs
           .sendMessage(tabId, {
             type: "BLUR_DECISION",
-            payload: { id, verdict, inferenceMs: raw.inferenceMs, decodeMs: raw.decodeMs },
+            payload: {
+              id,
+              verdict,
+              decodeMs: raw.decodeMs,
+              inferenceMs: raw.inferenceMs,
+              queueWaitMs: raw.queueWaitMs,
+              latencyMs,
+            },
           })
           .catch(() => {
             // Tab may have navigated away before the round-trip completed.
@@ -261,7 +308,8 @@ async function handleMessage(
       // REPORT_DETECTION behavior (content script only reports blocked items).
       if (verdict.shouldBlock) {
         const nextState = buildNextState(
-          state, id, url, kind, verdict, raw.inferenceMs, raw.decodeMs
+          state, id, url, kind, verdict,
+          raw.inferenceMs, raw.queueWaitMs, raw.decodeMs, latencyMs,
         );
         await chrome.storage.local.set({ blurguard: nextState });
         await notifyPopup(nextState);
@@ -296,7 +344,9 @@ function buildNextState(
   kind: "image" | "video",
   verdict: Verdict,
   inferenceMs: number,
+  queueWaitMs: number,
   decodeMs: number,
+  latencyMs: number,
 ): BlurGuardState {
   let domain = "unknown";
   try {
@@ -315,7 +365,9 @@ function buildNextState(
     reasons: verdict.reasons,
     timestamp: Date.now(),
     inferenceMs,
+    queueWaitMs,
     decodeMs,
+    latencyMs,
   };
 
   return {

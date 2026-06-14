@@ -89,11 +89,16 @@ vi.stubGlobal("chrome", {
     sendMessage: vi.fn().mockImplementation((msg: unknown) => {
       runtimeMessages.push(msg);
       const m = msg as { type: string; payload?: { id: string } };
+      if (m.type === "OFFSCREEN_PING") {
+        return Promise.resolve({ type: "OFFSCREEN_READY" });
+      }
       if (m.type === "OFFSCREEN_CLASSIFY") {
         return Promise.resolve({
           id: m.payload!.id,
           predictions: nextOffscreenPredictions,
-          ms: 7, // stub SW-reported inference time
+          inferenceMs: 7,
+          queueWaitMs: 0,
+          decodeMs: 0,
         });
       }
       // STATE_UPDATED and other broadcasts
@@ -235,14 +240,19 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
   });
 
   it("carries the offscreen-reported inference ms through to BLUR_DECISION", async () => {
-    // Temporarily replace the sendMessage mock to return ms=123
-    vi.mocked(chrome.runtime.sendMessage).mockImplementationOnce((msg: unknown) => {
-      const m = msg as { type: string; payload?: { id: string } };
-      if (m.type === "OFFSCREEN_CLASSIFY") {
-        return Promise.resolve({ id: m.payload!.id, predictions: safePredictions(), ms: 123 });
-      }
-      return Promise.resolve({ ok: true });
-    });
+    // PING is always the first sendMessage call (waitForOffscreenReady). Chain two
+    // mockImplementationOnce so the first slot handles PING and the second returns
+    // inferenceMs:123 for CLASSIFY. Without the first slot, PING would consume the
+    // custom CLASSIFY handler and CLASSIFY would fall through to the base mock (7ms).
+    vi.mocked(chrome.runtime.sendMessage)
+      .mockImplementationOnce(() => Promise.resolve({ type: "OFFSCREEN_READY" }))
+      .mockImplementationOnce((msg: unknown) => {
+        const m = msg as { type: string; payload?: { id: string } };
+        if (m.type === "OFFSCREEN_CLASSIFY") {
+          return Promise.resolve({ id: m.payload!.id, predictions: safePredictions(), inferenceMs: 123, queueWaitMs: 0, decodeMs: 0 });
+        }
+        return Promise.resolve({ ok: true });
+      });
 
     await dispatchToSW({
       type: "CLASSIFY_REQUEST",
@@ -250,7 +260,7 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
     } satisfies ClassifyRequestMessage);
 
     const decision = sentBlurDecision("ms-test");
-    expect(decision?.payload.ms).toBe(123);
+    expect(decision?.payload.inferenceMs).toBe(123);
   });
 
   it("verdict.shouldBlock is false for safe stub predictions", async () => {
