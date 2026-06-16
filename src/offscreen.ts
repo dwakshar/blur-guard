@@ -109,8 +109,8 @@ async function dispatch(
       return;
 
     case "OFFSCREEN_CLASSIFY": {
-      const { id, url, kind, backend, sensitivity, sightengineConfig } = message.payload;
-      const result = await runClassify(url, kind, backend, sensitivity, sightengineConfig);
+      const { id, url, backend, sensitivity, sightengineConfig } = message.payload;
+      const result = await runClassify(url, backend, sensitivity, sightengineConfig);
       sendResponse({ id, ...result });
       return;
     }
@@ -161,16 +161,10 @@ type ClassifyResult = {
 
 async function runClassify(
   url: string,
-  kind: "image" | "video",
   backend: "tfjs" | "sightengine",
   sensitivity: Sensitivity,
   sightengineConfig?: SightengineConfig,
 ): Promise<ClassifyResult> {
-  if (kind === "video") {
-    console.warn("[BlurGuard offscreen] video inference not yet implemented");
-    return { predictions: safeDefault(), decodeMs: 0, inferenceMs: 0, queueWaitMs: 0 };
-  }
-
   // ── Phase A: fetch image as extension origin ──────────────────────────────
   // Parallel-safe: network I/O does not touch the GPU or Sightengine's quota.
   const t0 = performance.now();
