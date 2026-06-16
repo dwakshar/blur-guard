@@ -7,6 +7,8 @@ import type {
   ClassifyResultMessage,
   DetectionEvent,
   DetectionReportPayload,
+  Sensitivity,
+  SightengineConfig,
   Verdict,
 } from "./types/messages";
 import { assertNever } from "./types/messages";
@@ -16,13 +18,50 @@ const DEFAULT_STATE: BlurGuardState = {
   enabled: true,
   pausedUntil: 0,
   sensitivity: "balanced",
+  apiBackend: "tfjs",   // on-device by default; user must opt in to "sightengine"
   feed: [],
   stats: {
     images: 0,
     videos: 0,
     blocked: 0,
+    cloudErrors: 0,
   },
+  cloudWarning: null,
 };
+
+// ── Cloud failure policy: FAIL-OPEN-BUT-LOUD ──────────────────────────────────
+//
+// When a Sightengine API call fails (HTTP error, timeout, bad credentials,
+// rate limit), the image is NOT blurred.  Rationale: a browsing tool that blurs
+// every image on transient network failures is unusable; availability takes priority.
+//
+// Trade-off accepted: a cloud failure means NSFW content may go unblocked.
+//
+// Mitigation — failures are ALWAYS visible, three ways:
+//   1. Per-event console log:  [BlurGuard] cloud check FAILED id=… reason=…
+//   2. Feed entry:            "Cloud check failed — not blocked" in the popup feed
+//   3. Popup warning banner:  cloudWarning set in BlurGuardState after N consecutive
+//                             failures so the user sees it on next popup open
+//
+// To switch to fail-CLOSED (blur on uncertainty), change shouldBlock to true in
+// buildCloudErrorState() below.  The rest of the pipeline handles it correctly.
+
+const CLOUD_FAILURE_WARNING_THRESHOLD = 3;
+
+// In-memory — resets when the SW is reloaded.  cloudWarning in persisted state
+// ensures the user sees the warning even after SW sleep/restart.
+let cloudConsecutiveFailures = 0;
+
+// Separate storage key for Sightengine credentials.
+// Never merged into BlurGuardState so credentials are never broadcast in STATE_UPDATED.
+const SIGHTENGINE_STORAGE_KEY = "blurguard_sightengine" as const;
+
+async function getApiConfig(): Promise<SightengineConfig | null> {
+  const data = await chrome.storage.local.get(SIGHTENGINE_STORAGE_KEY);
+  const cfg = data[SIGHTENGINE_STORAGE_KEY] as Partial<SightengineConfig> | undefined;
+  if (!cfg?.apiUser || !cfg?.apiSecret) return null;
+  return { apiUser: cfg.apiUser, apiSecret: cfg.apiSecret };
+}
 
 // ── Offscreen document lifecycle ──────────────────────────────────────────────
 // Only one offscreen doc may exist per extension at a time (Chrome limit).
@@ -32,6 +71,167 @@ const DEFAULT_STATE: BlurGuardState = {
 
 let offscreenCreating: Promise<void> | null = null;
 let offscreenReady = false;
+
+// ── SW-side priority classify queue ──────────────────────────────────────────
+//
+// Holds pending classify requests before dispatch to the offscreen doc.
+// High-priority (in-viewport) items are inserted at the front so they run next.
+// Low-priority (off-screen) items are appended. One dispatch is active at a time
+// (dispatchBusy flag), preserving the one-inference-at-a-time GPU serialization
+// that exists in the offscreen queueTail chain.
+
+interface QueueItem {
+  id: string;
+  url: string;
+  kind: "image" | "video";
+  priority: "high" | "low";
+  backend: "tfjs" | "sightengine";
+  sensitivity: Sensitivity;
+  sightengineConfig?: SightengineConfig;
+  tabId: number | undefined;
+  tDetected: number;
+}
+
+const MAX_SW_QUEUE = 100;
+const classifyQueue: QueueItem[] = [];
+let dispatchBusy = false;
+
+function enqueueClassify(item: QueueItem): void {
+  if (item.priority === "high") {
+    classifyQueue.unshift(item);
+    // Hard cap: trim the tail (all low-priority) if needed
+    if (classifyQueue.length > MAX_SW_QUEUE) classifyQueue.length = MAX_SW_QUEUE;
+  } else {
+    if (classifyQueue.length >= MAX_SW_QUEUE) {
+      console.warn(`[BlurGuard SW] queue full (${MAX_SW_QUEUE}), dropping low-priority: ${item.url}`);
+      return;
+    }
+    classifyQueue.push(item);
+  }
+  drainQueue();
+}
+
+function drainQueue(): void {
+  if (dispatchBusy || classifyQueue.length === 0) return;
+  dispatchBusy = true;
+  const item = classifyQueue.shift()!;
+  void processClassify(item).finally(() => {
+    dispatchBusy = false;
+    drainQueue();
+  });
+}
+
+async function processClassify(item: QueueItem): Promise<void> {
+  const { id, url, kind, backend, sensitivity, sightengineConfig, tabId, tDetected } = item;
+
+  // Re-check: state may have changed while item sat in queue.
+  const state = await getState();
+  if (!state.enabled || state.pausedUntil > Date.now()) return;
+
+  await ensureOffscreen();
+  await waitForOffscreenReady();
+
+  let raw: ClassifyResultMessage["payload"] | undefined;
+  try {
+    raw = (await chrome.runtime.sendMessage({
+      type: "OFFSCREEN_CLASSIFY",
+      payload: { id, url, kind, backend, sensitivity, sightengineConfig },
+    })) as ClassifyResultMessage["payload"];
+  } catch (err) {
+    console.error("[BlurGuard SW] offscreen classify error:", err);
+    return;
+  }
+
+  // ── Cloud error path ──────────────────────────────────────────────────────
+  if (raw?.cloudError) {
+    const latencyMs = Math.round(performance.now() - tDetected);
+    console.error(
+      `[BlurGuard] cloud check FAILED id=${id} reason=${raw.cloudError} latencyMs=${latencyMs}`
+    );
+    cloudConsecutiveFailures++;
+    let nextCloudWarning = state.cloudWarning;
+    if (cloudConsecutiveFailures >= CLOUD_FAILURE_WARNING_THRESHOLD && !state.cloudWarning) {
+      nextCloudWarning =
+        `${cloudConsecutiveFailures} consecutive cloud checks failed. ` +
+        `Last error: ${raw.cloudError.slice(0, 120)}`;
+      console.warn(`[BlurGuard] cloudWarning set after ${cloudConsecutiveFailures} consecutive failures`);
+    }
+    const nextState = buildCloudErrorState(state, id, url, kind, raw.cloudError, latencyMs, nextCloudWarning);
+    await chrome.storage.local.set({ blurguard: nextState });
+    await notifyPopup(nextState);
+    if (tabId !== undefined) {
+      chrome.tabs.sendMessage(tabId, {
+        type: "BLUR_DECISION",
+        payload: {
+          id,
+          verdict: { category: "safe", confidence: 0, shouldBlock: false, reasons: ["cloud check failed"] },
+          decodeMs: raw.decodeMs,
+          inferenceMs: 0,
+          queueWaitMs: 0,
+          latencyMs,
+        },
+      }).catch(() => {});
+    }
+    return;
+  }
+
+  // ── Normal verdict path ───────────────────────────────────────────────────
+  let verdict: Verdict;
+  if (raw?.verdict) {
+    verdict = raw.verdict;
+    cloudConsecutiveFailures = 0;
+    if (state.cloudWarning !== null) {
+      await updateState({ cloudWarning: null });
+      await notifyPopup(await getState());
+    }
+  } else if (raw?.predictions?.length) {
+    verdict = verdictFromPredictions(raw.predictions, sensitivity);
+  } else {
+    return;
+  }
+
+  const latencyMs = Math.round(performance.now() - tDetected);
+
+  if (raw?.predictions?.length) {
+    const s = Object.fromEntries(raw.predictions.map((p) => [p.className, p.probability.toFixed(3)]));
+    console.log(
+      `[BlurGuard tfjs] id=${id} verdict=${verdict.category} block=${verdict.shouldBlock}` +
+      ` scores={Porn:${s.Porn},Hentai:${s.Hentai},Sexy:${s.Sexy},Neutral:${s.Neutral},Drawing:${s.Drawing}}` +
+      ` infMs=${raw.inferenceMs} queueMs=${raw.queueWaitMs} decodeMs=${raw.decodeMs} latencyMs=${latencyMs}`
+    );
+  } else {
+    console.log(
+      `[BlurGuard sightengine] id=${id} verdict=${verdict.category} block=${verdict.shouldBlock}` +
+      ` confidence=${verdict.confidence.toFixed(3)}` +
+      ` infMs=${raw?.inferenceMs ?? 0} decodeMs=${raw?.decodeMs ?? 0} latencyMs=${latencyMs}`
+    );
+  }
+
+  if (tabId !== undefined) {
+    chrome.tabs
+      .sendMessage(tabId, {
+        type: "BLUR_DECISION",
+        payload: {
+          id,
+          verdict,
+          decodeMs: raw.decodeMs,
+          inferenceMs: raw.inferenceMs,
+          queueWaitMs: raw.queueWaitMs,
+          latencyMs,
+        },
+      })
+      .catch(() => {});
+  }
+
+  if (verdict.shouldBlock) {
+    const nextState = buildNextState(
+      state, id, url, kind, verdict,
+      raw.inferenceMs, raw.queueWaitMs, raw.decodeMs, latencyMs,
+    );
+    await chrome.storage.local.set({ blurguard: nextState });
+    await notifyPopup(nextState);
+  }
+}
 
 async function ensureOffscreen(): Promise<void> {
   const existing = await chrome.runtime.getContexts({
@@ -135,7 +335,9 @@ async function handleMessage(
         ...current,
         feed: [],
         stats: { ...DEFAULT_STATE.stats },
+        cloudWarning: null,
       };
+      cloudConsecutiveFailures = 0;
       await chrome.storage.local.set({ blurguard: nextState });
       await notifyPopup(nextState);
       return { ok: true };
@@ -176,6 +378,18 @@ async function handleMessage(
         payload: message.payload,
       });
       await notifyPopup(await getState());
+      return { ok: true };
+    }
+
+    case "SET_API_BACKEND": {
+      await updateState({ apiBackend: message.payload });
+      await notifyPopup(await getState());
+      return { ok: true };
+    }
+
+    case "SET_API_CONFIG": {
+      // Stored under a separate key — never sent to content scripts.
+      await chrome.storage.local.set({ [SIGHTENGINE_STORAGE_KEY]: message.payload });
       return { ok: true };
     }
 
@@ -238,83 +452,58 @@ async function handleMessage(
     // ── Inference pipeline ────────────────────────────────────────────────────
 
     case "CLASSIFY_REQUEST": {
-      // tDetected: the moment the content script's observation reached the SW.
-      // latencyMs = tDetected → BLUR_DECISION sent = what the user/feed perceives.
+      // tDetected: moment the content script's observation reached the SW.
+      // Passed through to processClassify so latencyMs spans the full round-trip.
       const tDetected = performance.now();
 
       const state = await getState();
-      if (!state.enabled || state.pausedUntil > Date.now()) {
-        return { ok: true };
-      }
+      if (!state.enabled || state.pausedUntil > Date.now()) return { ok: true };
 
-      const { id, url, kind } = message.payload;
-
-      // Ensure the offscreen doc exists AND its model is loaded + warmed.
-      // waitForOffscreenReady() is a no-op on the warm path (offscreenReady===true).
-      await ensureOffscreen();
-      await waitForOffscreenReady();
-
-      // Forward to offscreen doc and await the classify result.
-      let raw: ClassifyResultMessage["payload"] | undefined;
-      try {
-        raw = (await chrome.runtime.sendMessage({
-          type: "OFFSCREEN_CLASSIFY",
-          payload: { id, url, kind },
-        })) as ClassifyResultMessage["payload"];
-      } catch (err) {
-        console.error("[BlurGuard SW] offscreen classify error:", err);
-        return { ok: true };
-      }
-
-      if (!raw?.predictions?.length) return { ok: true };
-
-      // Map predictions through sensitivity thresholds → Verdict.
-      const verdict: Verdict = verdictFromPredictions(
-        raw.predictions,
-        state.sensitivity
-      );
-
-      const latencyMs = Math.round(performance.now() - tDetected);
-
-      // Per-image verdict log — all three timing numbers in one place.
-      const s = Object.fromEntries(raw.predictions.map((p) => [p.className, p.probability.toFixed(3)]));
-      console.log(
-        `[BlurGuard offscreen] id=${id} verdict=${verdict.category} block=${verdict.shouldBlock}` +
-        ` scores={Porn:${s.Porn},Hentai:${s.Hentai},Sexy:${s.Sexy},Neutral:${s.Neutral},Drawing:${s.Drawing}}` +
-        ` infMs=${raw.inferenceMs} queueMs=${raw.queueWaitMs} decodeMs=${raw.decodeMs} latencyMs=${latencyMs}`
-      );
-
-      // Send BLUR_DECISION to the originating tab's content script.
+      const { id, url, kind, priority } = message.payload;
       const tabId = sender?.tab?.id;
-      if (tabId !== undefined) {
-        chrome.tabs
-          .sendMessage(tabId, {
-            type: "BLUR_DECISION",
-            payload: {
-              id,
-              verdict,
-              decodeMs: raw.decodeMs,
-              inferenceMs: raw.inferenceMs,
-              queueWaitMs: raw.queueWaitMs,
-              latencyMs,
-            },
-          })
-          .catch(() => {
-            // Tab may have navigated away before the round-trip completed.
-          });
+
+      // Credentials are read here (SW has storage access) and forwarded per-request.
+      // They never enter BlurGuardState or any broadcast to content scripts.
+      let sightengineConfig: SightengineConfig | undefined;
+      if (state.apiBackend === "sightengine") {
+        const cfg = await getApiConfig();
+        if (!cfg) {
+          console.warn("[BlurGuard SW] Sightengine selected but credentials not set — skipping");
+          return { ok: true };
+        }
+        sightengineConfig = cfg;
       }
 
-      // Persist to feed and push STATE_UPDATED only when blocking, matching the
-      // REPORT_DETECTION behavior (content script only reports blocked items).
-      if (verdict.shouldBlock) {
-        const nextState = buildNextState(
-          state, id, url, kind, verdict,
-          raw.inferenceMs, raw.queueWaitMs, raw.decodeMs, latencyMs,
-        );
-        await chrome.storage.local.set({ blurguard: nextState });
-        await notifyPopup(nextState);
-      }
+      enqueueClassify({
+        id, url, kind, priority,
+        backend: state.apiBackend,
+        sensitivity: state.sensitivity,
+        sightengineConfig,
+        tabId,
+        tDetected,
+      });
+      return { ok: true };
+    }
 
+    case "CLASSIFY_PRIORITIZE": {
+      // Promote a pending item to the front of the queue (called when its element
+      // scrolls into the viewport before classification completes).
+      const { id } = message.payload;
+      const idx = classifyQueue.findIndex((item) => item.id === id);
+      if (idx > 0) {
+        const [item] = classifyQueue.splice(idx, 1);
+        item.priority = "high";
+        classifyQueue.unshift(item);
+      }
+      return { ok: true };
+    }
+
+    case "CLASSIFY_CANCEL": {
+      // Remove a pending item from the queue (called when its element is removed
+      // from the DOM before classification completes).
+      const { id } = message.payload;
+      const idx = classifyQueue.findIndex((item) => item.id === id);
+      if (idx !== -1) classifyQueue.splice(idx, 1);
       return { ok: true };
     }
 
@@ -382,6 +571,52 @@ function buildNextState(
   };
 }
 
+// Cloud API failure — adds a feed entry (visible gap) but does NOT increment
+// blocked (image was not blurred — fail-open policy).  Accepts the updated
+// cloudWarning value so the caller controls when the warning is set.
+function buildCloudErrorState(
+  state: BlurGuardState,
+  id: string,
+  url: string,
+  kind: "image" | "video",
+  errorReason: string,
+  latencyMs: number,
+  cloudWarning: string | null,
+): BlurGuardState {
+  let domain = "unknown";
+  try {
+    domain = new URL(url).hostname;
+  } catch {}
+
+  const event: DetectionEvent = {
+    id,
+    kind,
+    src: url,
+    domain,
+    category: "safe",    // fail-open: content is unblocked
+    confidence: 0,
+    reasons: [],
+    timestamp: Date.now(),
+    inferenceMs: 0,
+    queueWaitMs: 0,
+    decodeMs: 0,
+    latencyMs,
+    cloudCheckFailed: true,
+    cloudErrorReason: errorReason.slice(0, 200),
+  };
+
+  return {
+    ...state,
+    feed: [event, ...state.feed].slice(0, 20),
+    stats: {
+      ...state.stats,
+      cloudErrors: state.stats.cloudErrors + 1,
+      // images/videos/blocked are NOT incremented — no content decision was made.
+    },
+    cloudWarning,
+  };
+}
+
 async function updateState(partial: Partial<BlurGuardState>): Promise<void> {
   const current = await getState();
   const next = { ...current, ...partial };
@@ -407,6 +642,10 @@ async function getState(): Promise<BlurGuardState> {
   return {
     ...DEFAULT_STATE,
     ...stored,
+    // Validate apiBackend in case storage holds a stale/unknown value.
+    apiBackend: stored.apiBackend === "sightengine" ? "sightengine" : "tfjs",
+    // cloudWarning: explicit default handles older stored state that lacks this field.
+    cloudWarning: stored.cloudWarning ?? null,
     stats: {
       ...DEFAULT_STATE.stats,
       ...(stored.stats ?? {}),

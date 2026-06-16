@@ -57,6 +57,9 @@ type SensitivityProfile = {
   explicitThreshold: number;
   suggestiveThreshold: number;
   suggestiveBlockThreshold: number;
+  // Sexy must exceed Neutral by at least this margin to qualify as suggestive.
+  // Prevents fitness/sportswear FPs where NSFWJS inflates Sexy but Neutral stays high.
+  sexyNeutralMargin: number;
   explicitPenaltyWeight: number;
   suggestivePenaltyWeight: number;
   explicitDomainScore: number;
@@ -152,11 +155,35 @@ let pageContextCache:
     }
   | undefined;
 
+// Threshold changelog:
+//
+// Phase 2.4 — tuned against 2.3 labeled-set results:
+//   Problem: yoga/fitness images in tight sportswear inflated Sexy to 0.65–0.73 at
+//   balanced and triggered blocks under strict (old blockThreshold=0.58).  Neutral
+//   stayed moderate (0.18–0.30), signalling model uncertainty rather than real content.
+//   Fix A — raise suggestiveBlockThreshold: balanced 0.72→0.78  strict 0.58→0.65
+//   Fix B — gate suggestive on Sexy-Neutral margin (sexyNeutralMargin):
+//     balanced 0.12 / strict 0.06 / low 0.20
+//   Porn/Hentai explicitThresholds were intentionally unchanged at the time.
+//
+// Phase 2.4-redo — real browser run revealed FNs on 3/5 explicit images:
+//   Root cause: explicitThreshold (applied to Porn+Hentai SUM) was too high.
+//     nsfw-01: Hentai=0.823, Porn=0.016 → sum=0.839 < 0.90 → FN at balanced
+//     nsfw-02: sum≈0.659 < 0.90 → FN at balanced; < 0.82 → FN at strict too
+//     nsfw-04: Drawing=0.968, Porn≈0, Hentai≈0 → model ceiling, NOT a threshold bug
+//   Safe-image corpus: all Porn+Hentai sums < 0.18 (10/10 correct, 0.27 margin to new balanced gate)
+//   Fix: lower explicitThreshold to sit in the gap between 0.18 (safe max) and 0.659 (nsfw-02 sum):
+//     balanced: 0.90 → 0.45  (verified against corpus; ~0.27 above safe max, ~0.21 below nsfw-02)
+//     strict:   0.82 → 0.35  (more aggressive; 0.17 above safe max)
+//     low:      0.94 → 0.60  (conservative; still catches nsfw-02 sum=0.659)
+//   nsfw-04 (Drawing=0.968, sum≈0.006): not fixed on-device — cloud (Sightengine) catches it.
+//   suggestiveThreshold/suggestiveBlockThreshold/sexyNeutralMargin: unchanged from Phase 2.4.
 const SENSITIVITY_PROFILES: Record<Sensitivity, SensitivityProfile> = {
   low: {
-    explicitThreshold: 0.94,
+    explicitThreshold: 0.60,          // was 0.94 — see Phase 2.4-redo note above
     suggestiveThreshold: 0.68,
-    suggestiveBlockThreshold: 1,
+    suggestiveBlockThreshold: 1,      // never blocks suggestive in low mode
+    sexyNeutralMargin: 0.20,          // high margin required — very conservative
     explicitPenaltyWeight: 0.22,
     suggestivePenaltyWeight: 1,
     explicitDomainScore: 0.84,
@@ -165,20 +192,22 @@ const SENSITIVITY_PROFILES: Record<Sensitivity, SensitivityProfile> = {
     adultLinkScore: 0.06,
   },
   balanced: {
-    explicitThreshold: 0.9,
+    explicitThreshold: 0.45,          // was 0.90 — see Phase 2.4-redo note above
     suggestiveThreshold: 0.58,
-    suggestiveBlockThreshold: 0.72,
+    suggestiveBlockThreshold: 0.78,   // was 0.72 — kills yoga/sportswear FP blocks
+    sexyNeutralMargin: 0.12,          // Sexy must beat Neutral by 12pp
     explicitPenaltyWeight: 0.16,
     suggestivePenaltyWeight: 0.92,
-    explicitDomainScore: 0.9,
+    explicitDomainScore: 0.90,
     explicitDomainOnlyScore: 0.32,
     suggestiveAdultSiteScore: 0.86,
     adultLinkScore: 0.18,
   },
   strict: {
-    explicitThreshold: 0.82,
+    explicitThreshold: 0.35,          // was 0.82 — see Phase 2.4-redo note above
     suggestiveThreshold: 0.46,
-    suggestiveBlockThreshold: 0.58,
+    suggestiveBlockThreshold: 0.65,   // was 0.58 — reduces strict fitness FPs
+    sexyNeutralMargin: 0.06,          // small margin — stay aggressive on real content
     explicitPenaltyWeight: 0.08,
     suggestivePenaltyWeight: 0.58,
     explicitDomainScore: 0.99,
@@ -807,8 +836,13 @@ export function verdictFromPredictions(
     (byClass.Porn ?? 0) + (byClass.Hentai ?? 0)
   );
   const suggestiveScore = byClass.Sexy ?? 0;
+  const neutralScore = byClass.Neutral ?? 0;
 
   const profile = SENSITIVITY_PROFILES[sensitivity];
+  // Fitness/sportswear FP guard: Sexy must clear Neutral by sexyNeutralMargin.
+  // When Neutral is high, the model is hedging — don't treat ambiguous Sexy as suggestive.
+  const sexyMarginOk = (suggestiveScore - neutralScore) >= profile.sexyNeutralMargin;
+
   let category: DetectionCategory = "safe";
   let confidence = 0;
   const reasons: string[] = [];
@@ -818,7 +852,7 @@ export function verdictFromPredictions(
     confidence = explicitScore;
     if ((byClass.Porn ?? 0) >= 0.1) reasons.push("porn classification");
     if ((byClass.Hentai ?? 0) >= 0.1) reasons.push("hentai classification");
-  } else if (suggestiveScore >= profile.suggestiveThreshold) {
+  } else if (suggestiveScore >= profile.suggestiveThreshold && sexyMarginOk) {
     category = "suggestive";
     confidence = suggestiveScore;
     reasons.push("sexy classification");

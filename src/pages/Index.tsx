@@ -2,6 +2,7 @@
 // Root popup page. Pulls live state from useBlurGuard and distributes
 // it to every child component as props — single source of truth.
 
+import ApiBackendControl from "@/components/blurguard/ApiBackendControl";
 import DetectionFeed from "@/components/blurguard/DetectionFeed";
 import Header from "@/components/blurguard/Header";
 import ProtectionStatus from "@/components/blurguard/ProtectionStatus";
@@ -12,8 +13,10 @@ import { useBlurGuard } from "@/hooks/useBlurGuard";
 import { useCallback } from "react";
 
 const Index = () => {
-  const { state, loading, resetStats, setEnabled, setPaused, setSensitivity } =
-    useBlurGuard();
+  const {
+    state, loading, resetStats, setEnabled, setPaused, setSensitivity,
+    setApiBackend, setApiConfig, apiConfig,
+  } = useBlurGuard();
   const resumeProtection = useCallback(() => {
     setEnabled(true);
   }, [setEnabled]);
@@ -30,13 +33,20 @@ const Index = () => {
           <div className="space-y-3 py-1">
             <Header enabled={state.enabled} />
 
-            <ProtectionStatus stats={state.stats} enabled={state.enabled} />
+            <ProtectionStatus stats={state.stats} enabled={state.enabled} cloudWarning={state.cloudWarning} />
 
             <DetectionFeed feed={state.feed} />
 
             <SensitivityControl
               sensitivity={state.sensitivity}
               onChangeSensitivity={setSensitivity}
+            />
+
+            <ApiBackendControl
+              apiBackend={state.apiBackend}
+              apiConfig={apiConfig}
+              onSetApiBackend={setApiBackend}
+              onSetApiConfig={setApiConfig}
             />
 
             <QuickActions

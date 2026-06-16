@@ -12,6 +12,57 @@ import type {
   Sensitivity,
 } from "./types/messages";
 
+// ─── Viewport priority ────────────────────────────────────────────────────────
+
+const inViewport = new WeakSet<Element>();
+let viewportObserver: IntersectionObserver | null = null;
+
+function startViewportTracking(): void {
+  if (viewportObserver) return;
+  viewportObserver = new IntersectionObserver(onIntersection, {
+    rootMargin: "200px 0px",
+  });
+}
+
+function stopViewportTracking(): void {
+  viewportObserver?.disconnect();
+  viewportObserver = null;
+}
+
+function onIntersection(entries: IntersectionObserverEntry[]): void {
+  for (const entry of entries) {
+    const el = entry.target as HTMLImageElement | HTMLVideoElement;
+    if (entry.isIntersecting) {
+      inViewport.add(el);
+      const id = el.getAttribute(BLURGUARD_ID_ATTR);
+      if (id && pending.has(id)) {
+        void sendToBackground({ type: "CLASSIFY_PRIORITIZE", payload: { id } });
+      }
+    } else {
+      inViewport.delete(el);
+      if (!document.contains(el)) {
+        // Element removed from DOM — cancel pending request and stop observing.
+        const id = el.getAttribute(BLURGUARD_ID_ATTR);
+        if (id && pending.has(id)) {
+          pending.delete(id);
+          void sendToBackground({ type: "CLASSIFY_CANCEL", payload: { id } });
+        }
+        viewportObserver?.unobserve(el);
+      }
+    }
+  }
+}
+
+function isNearViewport(el: Element): boolean {
+  const rect = el.getBoundingClientRect();
+  return (
+    rect.bottom > -200 &&
+    rect.top < window.innerHeight + 200 &&
+    rect.right > -200 &&
+    rect.left < window.innerWidth + 200
+  );
+}
+
 const CONTENT_SCRIPT_FLAG = "__blurGuardContentScriptLoaded__";
 const BLURGUARD_ID_ATTR = "data-blurguard-id";
 
@@ -30,8 +81,10 @@ let state: BlurGuardState = {
   enabled: true,
   pausedUntil: 0,
   sensitivity: "balanced",
+  apiBackend: "tfjs",
   feed: [],
-  stats: { images: 0, videos: 0, blocked: 0 },
+  stats: { images: 0, videos: 0, blocked: 0, cloudErrors: 0 },
+  cloudWarning: null,
 };
 
 // In-flight CLASSIFY_REQUEST records: id → { element, performance.now() at send time }
@@ -125,6 +178,7 @@ function applyDecision(message: BlurDecisionMessage): void {
   pending.delete(id);
 
   const { el, sentAt } = record;
+  viewportObserver?.unobserve(el);
 
   const roundTripMs = Math.round(performance.now() - sentAt);
   // inferenceMs is the honest on-device cost. decode and round-trip are secondary.
@@ -171,13 +225,14 @@ function applyDecision(message: BlurDecisionMessage): void {
 
 function startScanning(): void {
   if (!document.body) return;
-
+  startViewportTracking();
   startDetector(({ element }) => {
     void scanElement(element);
   }, document.body);
 }
 
 function stopScanning(): void {
+  stopViewportTracking();
   stopDetector();
 }
 
@@ -217,13 +272,15 @@ async function scanElement(
 
   const id = assignStableId(el);
   const kind: "image" | "video" = el instanceof HTMLImageElement ? "image" : "video";
+  const priority: "high" | "low" = isNearViewport(el) ? "high" : "low";
   const sentAt = performance.now();
 
   pending.set(id, { el, sentAt });
+  viewportObserver?.observe(el);
 
   sendToBackground({
     type: "CLASSIFY_REQUEST",
-    payload: { id, url, kind },
+    payload: { id, url, kind, priority },
   });
 }
 

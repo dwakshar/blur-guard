@@ -2,14 +2,15 @@
 // Displays live scanned + blocked counters from background state.
 
 import type { BlurGuardState } from "@/types/messages";
-import { Ban, Image, Video } from "lucide-react";
+import { Ban, Image, TriangleAlert, Video } from "lucide-react";
 
 interface Props {
   stats: BlurGuardState["stats"];
   enabled: boolean;
+  cloudWarning: string | null;
 }
 
-const ProtectionStatus = ({ stats, enabled }: Props) => {
+const ProtectionStatus = ({ stats, enabled, cloudWarning }: Props) => {
   const items = [
     { icon: Image, label: "Images", value: stats.images },
     { icon: Video, label: "Videos", value: stats.videos },
@@ -49,6 +50,17 @@ const ProtectionStatus = ({ stats, enabled }: Props) => {
           </div>
         ))}
       </div>
+
+      {cloudWarning && (
+        <div className="mt-3 flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/8 p-2.5">
+          <TriangleAlert className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
+          <p className="text-[11px] text-amber-300/90 leading-relaxed">
+            <span className="font-semibold text-amber-300">Cloud check warning: </span>
+            {cloudWarning}. Check your credentials or API status.
+            Clears on next successful check or "Reset Stats".
+          </p>
+        </div>
+      )}
     </div>
   );
 };

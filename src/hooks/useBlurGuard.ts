@@ -9,9 +9,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type {
+  ApiBackend,
   BlurGuardMessage,
   BlurGuardState,
   Sensitivity,
+  SightengineConfig,
 } from "../types/messages";
 
 // ─── Dev/preview fallback (Vite dev server, no chrome API) ───────────────────
@@ -20,7 +22,9 @@ const EMPTY_STATE: BlurGuardState = {
   enabled: true,
   pausedUntil: 0,
   sensitivity: "balanced",
-  stats: { images: 0, videos: 0, blocked: 0 },
+  apiBackend: "tfjs",
+  stats: { images: 0, videos: 0, blocked: 0, cloudErrors: 0 },
+  cloudWarning: null,
   feed: [],
 };
 
@@ -39,13 +43,27 @@ function sendMessage(message: BlurGuardMessage): Promise<unknown> {
 export function useBlurGuard() {
   const [state, setState] = useState<BlurGuardState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
+  const [apiConfig, setApiConfigState] = useState<SightengineConfig | null>(null);
 
   // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
     sendMessage({ type: "GET_STATE" }).then((response) => {
-      if (response) setState(response as BlurGuardState);
+      if (response) {
+        const r = response as BlurGuardState;
+        setState({ ...EMPTY_STATE, ...r, stats: { ...EMPTY_STATE.stats, ...(r.stats ?? {}) } });
+      }
       setLoading(false);
     });
+
+    // Load Sightengine credentials from storage (separate key, never broadcast).
+    if (isExtension) {
+      chrome.storage.local.get("blurguard_sightengine").then((data) => {
+        const cfg = data.blurguard_sightengine as Partial<SightengineConfig> | undefined;
+        if (cfg?.apiUser && cfg?.apiSecret) {
+          setApiConfigState({ apiUser: cfg.apiUser, apiSecret: cfg.apiSecret });
+        }
+      });
+    }
   }, []);
 
   // ── Live push from background ─────────────────────────────────────────────
@@ -56,7 +74,8 @@ export function useBlurGuard() {
 
     const listener = (message: BlurGuardMessage) => {
       if (message.type === "STATE_UPDATED" && message.payload) {
-        setState(message.payload as BlurGuardState);
+        const p = message.payload as BlurGuardState;
+        setState(prev => ({ ...prev, ...p, stats: { ...prev.stats, ...(p.stats ?? {}) } }));
       }
     };
 
@@ -82,7 +101,8 @@ export function useBlurGuard() {
     setState((prev) => ({
       ...prev,
       feed: [],
-      stats: { images: 0, videos: 0, blocked: 0 },
+      stats: { images: 0, videos: 0, blocked: 0, cloudErrors: 0 },
+      cloudWarning: null,
     }));
     await sendMessage({ type: "RESET_STATS" });
   }, []);
@@ -92,5 +112,15 @@ export function useBlurGuard() {
     await sendMessage({ type: "SET_SENSITIVITY", payload: sensitivity });
   }, []);
 
-  return { state, loading, setEnabled, setPaused, resetStats, setSensitivity };
+  const setApiBackend = useCallback(async (apiBackend: ApiBackend) => {
+    setState((prev) => ({ ...prev, apiBackend }));
+    await sendMessage({ type: "SET_API_BACKEND", payload: apiBackend });
+  }, []);
+
+  const setApiConfig = useCallback(async (config: SightengineConfig) => {
+    setApiConfigState(config);
+    await sendMessage({ type: "SET_API_CONFIG", payload: config });
+  }, []);
+
+  return { state, loading, setEnabled, setPaused, resetStats, setSensitivity, setApiBackend, setApiConfig, apiConfig };
 }

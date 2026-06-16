@@ -9,7 +9,7 @@ interface Props {
   feed: DetectionEvent[];
 }
 
-// Confidence → severity tier
+// Confidence → severity tier (only used for content verdicts, not cloud errors)
 function severity(confidence: number): "high" | "medium" | "low" {
   if (confidence >= 0.8) return "high";
   if (confidence >= 0.55) return "medium";
@@ -22,6 +22,11 @@ const severityDot: Record<"high" | "medium" | "low", string> = {
   low: "bg-success",
 };
 
+function dotClass(event: DetectionEvent): string {
+  if (event.cloudCheckFailed) return "bg-amber-500"; // gap — not a content verdict
+  return severityDot[severity(event.confidence)];
+}
+
 function relativeTime(ts: number): string {
   const diff = Math.floor((Date.now() - ts) / 1000);
   if (diff < 60) return `${diff}s ago`;
@@ -31,6 +36,7 @@ function relativeTime(ts: number): string {
 }
 
 function feedLabel(event: DetectionEvent): string {
+  if (event.cloudCheckFailed) return "Cloud check failed \u2014 not blocked";
   if (event.category === "explicit") {
     return event.kind === "video" ? "Explicit video blocked" : "Explicit image blocked";
   }
@@ -58,60 +64,68 @@ const DetectionFeed = ({ feed }: Props) => {
           </div>
         ) : (
           <div className="p-2 space-y-1">
-            {feed.map((event, i) => {
-              const sev = severity(event.confidence);
-              return (
-                <div
-                  key={event.id}
-                  className={`flex items-start gap-2.5 rounded-md px-3 py-2.5 transition-colors hover:bg-secondary/60 cursor-default ${
-                    i === 0 ? "animate-fade-in" : ""
-                  }`}>
-                  <div
-                    className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${severityDot[sev]}`}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-foreground leading-snug">
-                      {feedLabel(event)}{" "}
-                      <span className="text-muted-foreground">on</span>{" "}
-                      <span className="text-primary font-medium truncate">
-                        {event.domain}
-                      </span>
-                    </p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[10px] text-muted-foreground">
-                        {relativeTime(event.timestamp)}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/50">·</span>
-                      <span className="text-[10px] text-muted-foreground/70 tabular-nums">
-                        {Math.round(event.confidence * 100)}% conf.
-                      </span>
-                      {event.inferenceMs > 0 ? (
+            {feed.map((event, i) => (
+              <div
+                key={event.id}
+                className={`flex items-start gap-2.5 rounded-md px-3 py-2.5 transition-colors hover:bg-secondary/60 cursor-default ${
+                  i === 0 ? "animate-fade-in" : ""
+                }`}>
+                <div className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${dotClass(event)}`} />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-xs leading-snug ${event.cloudCheckFailed ? "text-amber-300/90" : "text-foreground"}`}>
+                    {feedLabel(event)}{" "}
+                    <span className="text-muted-foreground">on</span>{" "}
+                    <span className="text-primary font-medium truncate">
+                      {event.domain}
+                    </span>
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                    <span className="text-[10px] text-muted-foreground">
+                      {relativeTime(event.timestamp)}
+                    </span>
+                    {event.cloudCheckFailed ? (
+                      // Show error reason instead of confidence/inference timing
+                      event.cloudErrorReason ? (
                         <>
                           <span className="text-[10px] text-muted-foreground/50">·</span>
-                          {/* inferenceMs = on-device model cost; the honest latency number */}
-                          <span className="text-[10px] font-medium text-foreground/70 tabular-nums">
-                            {event.inferenceMs}ms
+                          <span className="truncate text-[10px] text-amber-400/70">
+                            {event.cloudErrorReason}
                           </span>
-                          {event.decodeMs > 0 ? (
-                            <span className="text-[10px] text-muted-foreground/50 tabular-nums">
-                              +{event.decodeMs}ms dec.
+                        </>
+                      ) : null
+                    ) : (
+                      <>
+                        <span className="text-[10px] text-muted-foreground/50">·</span>
+                        <span className="text-[10px] text-muted-foreground/70 tabular-nums">
+                          {Math.round(event.confidence * 100)}% conf.
+                        </span>
+                        {event.inferenceMs > 0 ? (
+                          <>
+                            <span className="text-[10px] text-muted-foreground/50">·</span>
+                            <span className="text-[10px] font-medium text-foreground/70 tabular-nums">
+                              {event.inferenceMs}ms
                             </span>
-                          ) : null}
-                        </>
-                      ) : null}
-                      {event.reasons[0] ? (
-                        <>
-                          <span className="text-[10px] text-muted-foreground/50">·</span>
-                          <span className="truncate text-[10px] text-muted-foreground/70">
-                            {event.reasons[0]}
-                          </span>
-                        </>
-                      ) : null}
-                    </div>
+                            {event.decodeMs > 0 ? (
+                              <span className="text-[10px] text-muted-foreground/50 tabular-nums">
+                                +{event.decodeMs}ms dec.
+                              </span>
+                            ) : null}
+                          </>
+                        ) : null}
+                        {event.reasons[0] ? (
+                          <>
+                            <span className="text-[10px] text-muted-foreground/50">·</span>
+                            <span className="truncate text-[10px] text-muted-foreground/70">
+                              {event.reasons[0]}
+                            </span>
+                          </>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         )}
       </ScrollArea>
