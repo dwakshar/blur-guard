@@ -5,6 +5,7 @@
 
 import { applyContextBlur, applyOverlay, removeAllOverlays } from "./lib/blurOverlay";
 import { startDetector, stopDetector } from "./lib/mediaDetector";
+import { VideoFrameSampler } from "./lib/videoSampler";
 import type {
   BlurDecisionMessage,
   BlurGuardMessage,
@@ -47,6 +48,7 @@ function onIntersection(entries: IntersectionObserverEntry[]): void {
           pending.delete(id);
           void sendToBackground({ type: "CLASSIFY_CANCEL", payload: { id } });
         }
+        if (el instanceof HTMLVideoElement) videoFrameSampler.stop(el);
         viewportObserver?.unobserve(el);
       }
     }
@@ -85,6 +87,7 @@ let state: BlurGuardState = {
   feed: [],
   stats: { images: 0, videos: 0, blocked: 0, cloudErrors: 0 },
   cloudWarning: null,
+  allowlist: [],
 };
 
 // In-flight CLASSIFY_REQUEST records: id → { element, performance.now() at send time }
@@ -99,6 +102,24 @@ const retried = new WeakSet<Element>();
 
 let idCounter = 0;
 
+// ─── Video frame sampler ──────────────────────────────────────────────────────
+// Instantiated once at module level; closures capture pending/inViewport by ref.
+
+const videoFrameSampler = new VideoFrameSampler(
+  // sendFrame: enqueue a frame classify request identically to an image request.
+  (frameId, url, el, priority) => {
+    const sentAt = performance.now();
+    pending.set(frameId, { el, sentAt });
+    viewportObserver?.observe(el);
+    sendToBackground({
+      type: "CLASSIFY_REQUEST",
+      payload: { id: frameId, url, kind: "video", priority },
+    });
+  },
+  (id) => pending.has(id),
+  () => inViewport,
+);
+
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
 async function bootstrap() {
@@ -107,7 +128,14 @@ async function bootstrap() {
     state = response as BlurGuardState;
   }
 
+  // Register listener before allowlist check so ALLOWLIST_UPDATED can
+  // restart scanning if this domain is later removed from the list.
   chrome.runtime.onMessage.addListener(handleMessage);
+
+  if (state.allowlist?.includes(location.hostname)) {
+    console.log(`[BlurGuard] ${location.hostname} is allowlisted — scanning disabled`);
+    return;
+  }
 
   if (state.enabled && state.pausedUntil <= Date.now()) {
     scanAndBlur();
@@ -134,10 +162,29 @@ function handleMessage(message: BlurGuardMessage): void {
       // Drop pending requests — decisions arriving after this would use stale thresholds.
       pending.clear();
       removeAllOverlays();
+      // Reset video samplers so blurred state from old sensitivity is cleared.
+      videoFrameSampler.stopAll();
       document
         .querySelectorAll<HTMLElement>("img, video")
         .forEach((el) => scanned.delete(el));
       scanAndBlur();
+      return;
+
+    case "ALLOWLIST_UPDATED":
+      state.allowlist = message.payload;
+      if (state.allowlist.includes(location.hostname)) {
+        console.log(`[BlurGuard] ${location.hostname} allowlisted — stopping`);
+        stopScanning();
+        removeAllOverlays();
+      } else if (state.enabled && state.pausedUntil <= Date.now()) {
+        // Domain was removed from the allowlist — resume scanning.
+        console.log(`[BlurGuard] ${location.hostname} removed from allowlist — resuming`);
+        document
+          .querySelectorAll<HTMLElement>("img, video")
+          .forEach((el) => scanned.delete(el));
+        scanAndBlur();
+        startScanning();
+      }
       return;
   }
 }
@@ -189,6 +236,9 @@ function applyDecision(message: BlurDecisionMessage): void {
   if (!verdict.shouldBlock) return;
   if (state.pausedUntil > Date.now() || !state.enabled) return;
 
+  // Stop video sampler — the video is blurred; further sampling is pointless.
+  if (el instanceof HTMLVideoElement) videoFrameSampler.markBlurred(el);
+
   const canReveal = state.sensitivity !== "strict";
 
   const wrapper = applyOverlay(el, {
@@ -234,6 +284,7 @@ function startScanning(): void {
 function stopScanning(): void {
   stopViewportTracking();
   stopDetector();
+  videoFrameSampler.stopAll();
 }
 
 function scanAndBlur(): void {
@@ -270,6 +321,17 @@ async function scanElement(
     return;
   }
 
+  // ── Video: start frame sampler ────────────────────────────────────────────
+  // The sampler fires at FRAME_SAMPLE_INTERVAL_MS (default 4 s) + on play/seek.
+  // Each tick captures a canvas frame and sends it through the same CLASSIFY_REQUEST
+  // path as images.  If the cap (MAX_ACTIVE_VIDEO_SAMPLERS) is reached, the video
+  // falls through to the single-shot path below so it still gets one classification.
+  if (el instanceof HTMLVideoElement) {
+    if (videoFrameSampler.start(el)) return; // sampler owns this element now
+    // Fell through: cap reached — fall back to single-shot poster/src classify.
+  }
+
+  // ── Image (or video cap fallback): single CLASSIFY_REQUEST ───────────────
   const id = assignStableId(el);
   const kind: "image" | "video" = el instanceof HTMLImageElement ? "image" : "video";
   const priority: "high" | "low" = isNearViewport(el) ? "high" : "low";

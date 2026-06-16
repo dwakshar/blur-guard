@@ -15,6 +15,7 @@ import type {
   Sensitivity,
   SightengineConfig,
 } from "../types/messages";
+import { CLOUD_BACKEND_ENABLED } from "../lib/featureFlags";
 
 // ─── Dev/preview fallback (Vite dev server, no chrome API) ───────────────────
 
@@ -25,6 +26,7 @@ const EMPTY_STATE: BlurGuardState = {
   apiBackend: "tfjs",
   stats: { images: 0, videos: 0, blocked: 0, cloudErrors: 0 },
   cloudWarning: null,
+  allowlist: [],
   feed: [],
 };
 
@@ -44,23 +46,43 @@ export function useBlurGuard() {
   const [state, setState] = useState<BlurGuardState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
   const [apiConfig, setApiConfigState] = useState<SightengineConfig | null>(null);
+  const [activeDomain, setActiveDomain] = useState<string | null>(null);
 
   // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
     sendMessage({ type: "GET_STATE" }).then((response) => {
       if (response) {
         const r = response as BlurGuardState;
-        setState({ ...EMPTY_STATE, ...r, stats: { ...EMPTY_STATE.stats, ...(r.stats ?? {}) } });
+        setState({
+          ...EMPTY_STATE,
+          ...r,
+          stats: { ...EMPTY_STATE.stats, ...(r.stats ?? {}) },
+          allowlist: Array.isArray(r.allowlist) ? r.allowlist : [],
+        });
       }
       setLoading(false);
     });
 
     // Load Sightengine credentials from storage (separate key, never broadcast).
-    if (isExtension) {
+    // Gated on CLOUD_BACKEND_ENABLED so the key and credential property names are
+    // dead code in the v1 build — Rollup eliminates this entire block when false.
+    if (isExtension && CLOUD_BACKEND_ENABLED) {
       chrome.storage.local.get("blurguard_sightengine").then((data) => {
         const cfg = data.blurguard_sightengine as Partial<SightengineConfig> | undefined;
         if (cfg?.apiUser && cfg?.apiSecret) {
           setApiConfigState({ apiUser: cfg.apiUser, apiSecret: cfg.apiSecret });
+        }
+      });
+
+      // Resolve the active tab's hostname for the "Disable on this site" toggle.
+      chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+        const url = tabs[0]?.url;
+        if (!url) return;
+        try {
+          const { hostname } = new URL(url);
+          if (hostname) setActiveDomain(hostname);
+        } catch {
+          // Restricted scheme (chrome://, about:, etc.) — leave activeDomain null.
         }
       });
     }
@@ -122,5 +144,26 @@ export function useBlurGuard() {
     await sendMessage({ type: "SET_API_CONFIG", payload: config });
   }, []);
 
-  return { state, loading, setEnabled, setPaused, resetStats, setSensitivity, setApiBackend, setApiConfig, apiConfig };
+  const addAllowlistDomain = useCallback(async (domain: string) => {
+    setState((prev) => ({
+      ...prev,
+      allowlist: prev.allowlist.includes(domain) ? prev.allowlist : [...prev.allowlist, domain],
+    }));
+    await sendMessage({ type: "ADD_ALLOWLIST_DOMAIN", payload: domain });
+  }, []);
+
+  const removeAllowlistDomain = useCallback(async (domain: string) => {
+    setState((prev) => ({
+      ...prev,
+      allowlist: prev.allowlist.filter((d) => d !== domain),
+    }));
+    await sendMessage({ type: "REMOVE_ALLOWLIST_DOMAIN", payload: domain });
+  }, []);
+
+  return {
+    state, loading, activeDomain,
+    setEnabled, setPaused, resetStats, setSensitivity,
+    setApiBackend, setApiConfig, apiConfig,
+    addAllowlistDomain, removeAllowlistDomain,
+  };
 }

@@ -15,6 +15,7 @@ import { useState, useRef } from "react";
 import { Cloud, Cpu, Eye, EyeOff, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ApiBackend, SightengineConfig } from "@/types/messages";
+import { CLOUD_BACKEND_ENABLED } from "@/lib/featureFlags";
 
 interface Props {
   apiBackend: ApiBackend;
@@ -24,6 +25,28 @@ interface Props {
 }
 
 const ApiBackendControl = ({ apiBackend, apiConfig, onSetApiBackend, onSetApiConfig }: Props) => {
+  // Cloud backend is disabled at build time in v1.  Render the on-device-only label
+  // so users see their privacy status; the toggle and credential fields are absent.
+  if (!CLOUD_BACKEND_ENABLED) {
+    return (
+      <div className="mx-4">
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+          Classification Engine
+        </h3>
+        <div className="rounded-lg bg-card border border-border p-3">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Cpu className="h-3.5 w-3.5 text-primary" />
+            <span className="text-xs font-medium text-foreground">On-device only</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Everything runs in your browser. No URLs, no pixels, no data of any kind
+            leave your device.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const [pendingCloud, setPendingCloud] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
   const [apiUser, setApiUser] = useState(apiConfig?.apiUser ?? "");

@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 440" width="780" height="440">
+  <defs>
+    <linearGradient id="pageGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#111"/>
+      <stop offset="100%" stop-color="#0a0a0a"/>
+    </linearGradient>
+    <!-- Neutral placeholder image gradients (safe imagery) -->
+    <linearGradient id="img1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a3a5c"/>
+      <stop offset="100%" stop-color="#0d2137"/>
+    </linearGradient>
+    <linearGradient id="img2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2d4a1e"/>
+      <stop offset="100%" stop-color="#1a2e10"/>
+    </linearGradient>
+    <linearGradient id="img3-blurred" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3d1a2e"/>
+      <stop offset="100%" stop-color="#1a0d17"/>
+    </linearGradient>
+    <linearGradient id="img4" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e2a3d"/>
+      <stop offset="100%" stop-color="#0d1621"/>
+    </linearGradient>
+    <linearGradient id="glassGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e91e8c" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.55"/>
+    </linearGradient>
+    <filter id="blurEffect">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+    <filter id="cardShadow">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+
+    <!-- CSS animations for the blur reveal demo -->
+    <style>
+      .blur-overlay {
+        animation: fadeInBlur 0.6s ease-out 1s both;
+      }
+      .blur-bg {
+        animation: fadeInBlur 0.6s ease-out 1s both;
+      }
+      .shield-icon {
+        animation: fadeInBlur 0.5s ease-out 1.4s both;
+      }
+      .badge-label {
+        animation: fadeInBlur 0.5s ease-out 1.4s both;
+      }
+      .click-hint {
+        animation: fadeInBlur 0.5s ease-out 1.8s both;
+      }
+      .verdict-badge {
+        animation: slideDown 0.4s ease-out 1.2s both;
+      }
+      @keyframes fadeInBlur {
+        from { opacity: 0; }
+        to   { opacity: 1; }
+      }
+      @keyframes slideDown {
+        from { opacity: 0; transform: translateY(-8px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+    </style>
+  </defs>
+
+  <!-- Page background -->
+  <rect width="780" height="440" fill="url(#pageGrad)"/>
+
+  <!-- Browser-like top bar -->
+  <rect width="780" height="38" fill="#1a1a1a"/>
+  <circle cx="18" cy="19" r="6" fill="#ff5f56"/>
+  <circle cx="36" cy="19" r="6" fill="#ffbd2e"/>
+  <circle cx="54" cy="19" r="6" fill="#27c93f"/>
+  <rect x="80" y="9" width="500" height="20" rx="10" fill="#0d0d0d"/>
+  <text x="330" y="23" font-family="system-ui,-apple-system,sans-serif" font-size="10" fill="#717171" text-anchor="middle">example.com/gallery</text>
+
+  <!-- Page heading -->
+  <text x="30" y="68" font-family="system-ui,-apple-system,sans-serif" font-size="14" font-weight="700" fill="#f2f2f2">Image Gallery</text>
+  <text x="30" y="85" font-family="system-ui,-apple-system,sans-serif" font-size="11" fill="#717171">Showing 6 results</text>
+
+  <!-- Image grid — 3 columns -->
+  <!-- Card 1: safe (mountain landscape placeholder) -->
+  <rect x="22" y="96" width="230" height="154" rx="10" fill="url(#img1)" filter="url(#cardShadow)"/>
+  <!-- Minimal "landscape" shapes -->
+  <polygon points="22,230 100,160 178,200 252,145 252,250 22,250" fill="#0a1e30" opacity="0.6"/>
+  <ellipse cx="180" cy="120" rx="18" ry="18" fill="#ffd700" opacity="0.15"/>
+  <text x="137" y="264" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171" text-anchor="middle">landscape-001.jpg</text>
+
+  <!-- Card 2: safe (forest placeholder) -->
+  <rect x="272" y="96" width="230" height="154" rx="10" fill="url(#img2)" filter="url(#cardShadow)"/>
+  <!-- Tree shapes -->
+  <rect x="310" y="170" width="12" height="40" fill="#0a1a05"/>
+  <polygon points="316,135 296,200 336,200" fill="#143d08"/>
+  <rect x="380" y="175" width="10" height="35" fill="#0a1a05"/>
+  <polygon points="385,140 368,195 402,195" fill="#1a5010"/>
+  <rect x="440" y="178" width="8" height="32" fill="#0a1a05"/>
+  <polygon points="444,148 430,190 458,190" fill="#112e06"/>
+  <text x="387" y="264" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171" text-anchor="middle">forest-002.jpg</text>
+
+  <!-- Card 3: BLURRED (flagged image — shown as gradient + blur overlay) -->
+  <rect x="522" y="96" width="230" height="154" rx="10" fill="url(#img3-blurred)" filter="url(#cardShadow)"/>
+  <!-- Blurred content placeholder shapes (abstract) -->
+  <ellipse cx="600" cy="155" rx="45" ry="55" fill="#5c1a3a" opacity="0.6" filter="url(#blurEffect)"/>
+  <ellipse cx="665" cy="170" rx="30" ry="40" fill="#3a0d25" opacity="0.5" filter="url(#blurEffect)"/>
+
+  <!-- Glass blur overlay (the BlurGuard pane) -->
+  <g class="blur-overlay">
+    <rect x="522" y="96" width="230" height="154" rx="10" fill="url(#glassGrad)"/>
+    <!-- Frosted glass effect with subtle noise/lines -->
+    <rect x="522" y="96" width="230" height="154" rx="10" fill="#e91e8c" fill-opacity="0.04"/>
+    <rect x="522" y="96" width="230" height="154" rx="10" stroke="#e91e8c" stroke-opacity="0.2" stroke-width="1" fill="none"/>
+    <!-- Horizontal scanlines for glass texture -->
+    <line x1="522" y1="116" x2="752" y2="116" stroke="#fff" stroke-opacity="0.03" stroke-width="1"/>
+    <line x1="522" y1="136" x2="752" y2="136" stroke="#fff" stroke-opacity="0.03" stroke-width="1"/>
+    <line x1="522" y1="156" x2="752" y2="156" stroke="#fff" stroke-opacity="0.03" stroke-width="1"/>
+    <line x1="522" y1="176" x2="752" y2="176" stroke="#fff" stroke-opacity="0.03" stroke-width="1"/>
+    <line x1="522" y1="196" x2="752" y2="196" stroke="#fff" stroke-opacity="0.03" stroke-width="1"/>
+    <line x1="522" y1="216" x2="752" y2="216" stroke="#fff" stroke-opacity="0.03" stroke-width="1"/>
+    <line x1="522" y1="236" x2="752" y2="236" stroke="#fff" stroke-opacity="0.03" stroke-width="1"/>
+  </g>
+
+  <!-- Shield icon centered on blurred card -->
+  <g class="shield-icon" transform="translate(637, 148)">
+    <path d="M0,-20 L-16,-12 L-16,4 C-16,15 -8,24 0,27 C8,24 16,15 16,4 L16,-12 Z" fill="#e91e8c" opacity="0.85"/>
+    <path d="M-7,4 L-2,9 L9,-3" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- "BlurGuard" label under shield -->
+  <g class="badge-label">
+    <text x="637" y="192" font-family="system-ui,-apple-system,sans-serif" font-size="10" font-weight="700" fill="#f2f2f2" text-anchor="middle" letter-spacing="0.5">BlurGuard</text>
+    <text x="637" y="206" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#e91e8c" text-anchor="middle">Content protected</text>
+  </g>
+
+  <!-- Click to reveal hint -->
+  <g class="click-hint">
+    <rect x="583" y="217" width="108" height="20" rx="10" fill="#000" fill-opacity="0.5" stroke="#e91e8c" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="637" y="231" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#f2f2f2" fill-opacity="0.8" text-anchor="middle">Click to reveal</text>
+  </g>
+
+  <!-- Verdict badge (animates in) -->
+  <g class="verdict-badge">
+    <rect x="534" y="98" width="90" height="18" rx="9" fill="#e91e8c" fill-opacity="0.9"/>
+    <text x="579" y="111" font-family="system-ui,-apple-system,sans-serif" font-size="9" font-weight="700" fill="#fff" text-anchor="middle" letter-spacing="0.3">EXPLICIT · 91%</text>
+  </g>
+
+  <text x="637" y="264" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171" text-anchor="middle">content-flagged.jpg</text>
+
+  <!-- Row 2 cards -->
+  <!-- Card 4 -->
+  <rect x="22" y="280" width="230" height="130" rx="10" fill="url(#img4)" filter="url(#cardShadow)"/>
+  <ellipse cx="90" cy="340" rx="50" ry="30" fill="#0a1020" opacity="0.7"/>
+  <ellipse cx="200" cy="330" rx="30" ry="20" fill="#0a1020" opacity="0.7"/>
+  <text x="137" y="425" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171" text-anchor="middle">cityscape-004.jpg</text>
+
+  <!-- Card 5 -->
+  <rect x="272" y="280" width="230" height="130" rx="10" fill="#1a1520" filter="url(#cardShadow)"/>
+  <!-- Abstract art (safe) -->
+  <circle cx="350" cy="345" r="25" fill="#2a1840" opacity="0.8"/>
+  <circle cx="400" cy="335" r="20" fill="#1a2840" opacity="0.8"/>
+  <circle cx="450" cy="350" r="30" fill="#1a3028" opacity="0.8"/>
+  <text x="387" y="425" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171" text-anchor="middle">abstract-005.jpg</text>
+
+  <!-- Card 6 -->
+  <rect x="522" y="280" width="230" height="130" rx="10" fill="#171a1d" filter="url(#cardShadow)"/>
+  <rect x="560" y="300" width="60" height="40" rx="4" fill="#1e2530"/>
+  <rect x="630" y="300" width="60" height="40" rx="4" fill="#1e2530"/>
+  <rect x="560" y="350" width="130" height="8" rx="4" fill="#1e2530"/>
+  <rect x="560" y="362" width="90" height="8" rx="4" fill="#1e2530"/>
+  <text x="637" y="425" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171" text-anchor="middle">screenshot-006.jpg</text>
+
+  <!-- Bottom annotation: zero layout shift -->
+  <rect x="22" y="430" width="230" height="2" fill="#22c55e" opacity="0.4"/>
+  <rect x="272" y="430" width="230" height="2" fill="#22c55e" opacity="0.4"/>
+  <rect x="522" y="430" width="230" height="2" fill="#22c55e" opacity="0.4"/>
+  <text x="390" y="444" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#3d3d3d" text-anchor="middle">↑ surrounding layout unchanged — zero reflow · backdrop-filter: blur(22px) glass pane over original element</text>
+</svg>

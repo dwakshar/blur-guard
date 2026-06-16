@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 360" width="380" height="360">
+  <defs>
+    <linearGradient id="headerGrad2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1a0a12"/>
+      <stop offset="100%" stop-color="#0d0d1a"/>
+    </linearGradient>
+    <filter id="shadow2">
+      <feDropShadow dx="0" dy="24" stdDeviation="30" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+    <clipPath id="clip2">
+      <rect x="10" y="10" width="360" height="340" rx="26"/>
+    </clipPath>
+  </defs>
+
+  <!-- Popup shell -->
+  <rect x="10" y="10" width="360" height="340" rx="26" fill="#0c0c0c" filter="url(#shadow2)"/>
+
+  <!-- Header band -->
+  <rect x="10" y="10" width="360" height="60" rx="26" fill="url(#headerGrad2)" clip-path="url(#clip2)"/>
+  <rect x="10" y="46" width="360" height="24" fill="url(#headerGrad2)"/>
+
+  <!-- Shield icon -->
+  <g transform="translate(30, 22)">
+    <path d="M11 2L3 6v5c0 4.97 3.45 9.63 8 10.93C16.55 20.63 20 15.97 20 11V6L11 2z" fill="#e91e8c" opacity="0.9"/>
+    <path d="M9 12l2 2 4-4" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="57" y="37" font-family="system-ui,-apple-system,sans-serif" font-size="15" font-weight="700" fill="#f2f2f2" letter-spacing="-0.3">BlurGuard</text>
+  <text x="57" y="53" font-family="system-ui,-apple-system,sans-serif" font-size="10" fill="#717171">Site allowlist management</text>
+
+  <!-- AI Active badge -->
+  <rect x="274" y="24" width="80" height="22" rx="11" fill="#0f2a1a"/>
+  <circle cx="287" cy="35" r="4" fill="#22c55e"/>
+  <text x="296" y="39" font-family="system-ui,-apple-system,sans-serif" font-size="10" font-weight="600" fill="#22c55e">AI Active</text>
+
+  <!-- Site Allowlist label -->
+  <text x="30" y="90" font-family="system-ui,-apple-system,sans-serif" font-size="9" font-weight="600" fill="#717171" letter-spacing="0.8">SITE ALLOWLIST</text>
+
+  <!-- Allowlist card (allowlisted state) - with amber highlight -->
+  <rect x="22" y="98" width="336" height="92" rx="10" fill="#161616" stroke="#3d2c0a" stroke-width="1"/>
+
+  <!-- Current domain row -->
+  <!-- Globe icon -->
+  <circle cx="42" cy="124" r="7" fill="none" stroke="#717171" stroke-width="1.2"/>
+  <ellipse cx="42" cy="124" rx="3.5" ry="7" fill="none" stroke="#717171" stroke-width="1"/>
+  <line x1="35" y1="124" x2="49" y2="124" stroke="#717171" stroke-width="1"/>
+
+  <text x="57" y="128" font-family="ui-monospace,monospace" font-size="11" fill="#f2f2f2">reddit.com</text>
+
+  <!-- Allowed button (amber - site is on allowlist) -->
+  <rect x="266" y="114" width="80" height="22" rx="6" fill="#f59e0b" fill-opacity="0.12" stroke="#f59e0b" stroke-opacity="0.35" stroke-width="1"/>
+  <!-- ShieldCheck icon -->
+  <path d="M278 120 L275 122v2c0 2 1.5 4 3.5 4.6 2-0.6 3.5-2.6 3.5-4.6v-2L278 120z" fill="#f59e0b" opacity="0.8"/>
+  <path d="M277 124l1 1 2-2" stroke="#fff" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+  <text x="286" y="129" font-family="system-ui,-apple-system,sans-serif" font-size="10" font-weight="600" fill="#f59e0b">Allowed</text>
+
+  <!-- Hint text in allowlisted state -->
+  <text x="30" y="152" font-family="system-ui,-apple-system,sans-serif" font-size="10" fill="#717171">BlurGuard won't scan images on this site.</text>
+  <text x="30" y="166" font-family="system-ui,-apple-system,sans-serif" font-size="10" fill="#717171">Click "Allowed" to re-enable protection.</text>
+
+  <!-- Other allowlisted sites section -->
+  <text x="30" y="204" font-family="system-ui,-apple-system,sans-serif" font-size="8" font-weight="600" fill="#717171" letter-spacing="0.5">OTHER ALLOWLISTED SITES</text>
+
+  <!-- Entry: twitter.com -->
+  <rect x="22" y="210" width="336" height="30" rx="8" fill="#1c1c1c"/>
+  <text x="36" y="229" font-family="ui-monospace,monospace" font-size="11" fill="#f2f2f2">twitter.com</text>
+  <!-- X button -->
+  <text x="340" y="229" font-family="system-ui,-apple-system,sans-serif" font-size="13" fill="#717171" text-anchor="middle">×</text>
+
+  <!-- Entry: instagram.com -->
+  <rect x="22" y="244" width="336" height="30" rx="8" fill="#1c1c1c"/>
+  <text x="36" y="263" font-family="ui-monospace,monospace" font-size="11" fill="#f2f2f2">instagram.com</text>
+  <text x="340" y="263" font-family="system-ui,-apple-system,sans-serif" font-size="13" fill="#717171" text-anchor="middle">×</text>
+
+  <!-- Annotation arrow pointing to Allowed button -->
+  <line x1="305" y1="150" x2="305" y2="138" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.7"/>
+  <polygon points="305,135 302,140 308,140" fill="#f59e0b" opacity="0.7"/>
+  <text x="318" y="156" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#f59e0b" opacity="0.9">Toggle</text>
+  <text x="318" y="168" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#f59e0b" opacity="0.9">per domain</text>
+
+  <!-- Footer note -->
+  <text x="190" y="310" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#3d3d3d" text-anchor="middle">Tap "Allowed" again on any tab to re-enable</text>
+</svg>

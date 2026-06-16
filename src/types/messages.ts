@@ -36,6 +36,20 @@ export interface SightengineConfig {
   apiSecret: string;
 }
 
+// Raw Sightengine nudity-2.1 field scores.
+// Each field is an independent 0-1 probability — they do NOT sum to 1.
+// Stored in the verdict cache so the SW can re-derive a Verdict with any
+// sensitivity setting without a new API call.
+export interface SightengineNudity {
+  sexual_activity: number;
+  sexual_display: number;
+  erotica: number;
+  very_suggestive: number;
+  suggestive: number;
+  mildly_suggestive: number;
+  none: number;
+}
+
 // ── Shared domain objects ─────────────────────────────────────────────────────
 
 export interface DetectionEvent {
@@ -47,6 +61,7 @@ export interface DetectionEvent {
   confidence: number;
   reasons: string[];
   timestamp: number;
+  backend: ApiBackend;
   inferenceMs: number;  // nsfwjs.classify() GPU work only; 0 when unavailable
   queueWaitMs: number;  // time canvas sat waiting for classify() slot; 0 when unavailable
   decodeMs: number;     // fetch + blob + createImageBitmap; 0 when unavailable
@@ -73,6 +88,9 @@ export interface BlurGuardState {
   // Set by the SW after CLOUD_FAILURE_WARNING_THRESHOLD consecutive failures;
   // cleared on next successful cloud check or on RESET_STATS.
   cloudWarning: string | null;
+  // Domains where the content script should not scan at all.
+  // Stored as lowercase hostnames (e.g. "example.com").
+  allowlist: string[];
 }
 
 export interface DetectionReportPayload {
@@ -122,6 +140,23 @@ export interface SetApiConfigMessage {
 export interface ReportDetectionMessage {
   type: "REPORT_DETECTION";
   payload: DetectionReportPayload;
+}
+
+export interface AddAllowlistDomainMessage {
+  type: "ADD_ALLOWLIST_DOMAIN";
+  payload: string; // lowercase hostname to allowlist
+}
+
+export interface RemoveAllowlistDomainMessage {
+  type: "REMOVE_ALLOWLIST_DOMAIN";
+  payload: string; // lowercase hostname to remove
+}
+
+// SW → all content scripts: pushed whenever the allowlist changes.
+// Content scripts use this to start/stop scanning without a full state reload.
+export interface AllowlistUpdatedMessage {
+  type: "ALLOWLIST_UPDATED";
+  payload: string[]; // full current allowlist
 }
 
 export interface ProtectionToggledMessage {
@@ -187,13 +222,16 @@ export interface OffscreenClassifyMessage {
 //   tfjs:        predictions — SW maps through verdictFromPredictions (NSFWJS thresholds)
 //   sightengine: verdict    — native thresholds, computed in offscreen
 //   sightengine: cloudError — API call failed; SW records failure in feed (fail-open)
+// nudity is set alongside verdict on sightengine success so the SW can cache the
+// raw field scores and re-derive verdicts under any future sensitivity setting.
 export interface ClassifyResultMessage {
   type: "CLASSIFY_RESULT";
   payload: {
     id: string;
-    predictions?: Prediction[];  // tfjs only
-    verdict?: Verdict;           // sightengine success only
-    cloudError?: string;         // sightengine failure: raw error reason (not a verdict)
+    predictions?: Prediction[];    // tfjs only
+    verdict?: Verdict;             // sightengine success only
+    nudity?: SightengineNudity;    // sightengine raw scores — for SW-side cache only
+    cloudError?: string;           // sightengine failure: raw error reason (not a verdict)
     decodeMs: number;
     inferenceMs: number;
     queueWaitMs: number;
@@ -237,8 +275,11 @@ export type BlurGuardMessage =
   | SetApiBackendMessage
   | SetApiConfigMessage
   | ReportDetectionMessage
+  | AddAllowlistDomainMessage
+  | RemoveAllowlistDomainMessage
   | ProtectionToggledMessage
   | SensitivityChangedMessage
+  | AllowlistUpdatedMessage
   | StateUpdatedMessage
   // inference pipeline
   | ClassifyRequestMessage

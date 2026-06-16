@@ -19,20 +19,11 @@
 //   • The original image URL never leaves the browser.
 //   • api_user + api_secret travel as query params (HTTPS, not logged in content).
 
-import type { Sensitivity, SightengineConfig, Verdict } from "../types/messages";
+import type { Sensitivity, SightengineConfig, SightengineNudity, Verdict } from "../types/messages";
+
+export type { SightengineNudity };  // re-export for callers that need the type
 
 const ENDPOINT = "https://api.sightengine.com/1.0/check.json";
-
-// Exported so callers can construct typed test fixtures.
-export interface SightengineNudity {
-  sexual_activity:   number;  // explicit sex acts (highest severity)
-  sexual_display:    number;  // explicit nudity without an act
-  erotica:           number;  // artistic/stylised nudity (boudoir, paintings)
-  very_suggestive:   number;  // clearly suggestive, no nudity
-  suggestive:        number;  // moderate suggestion
-  mildly_suggestive: number;  // barely suggestive (swimwear, sportswear)
-  none:              number;  // safe
-}
 
 interface SightengineSuccess {
   status: "success";
@@ -187,7 +178,7 @@ export async function sightengineClassifyBlob(
   blob: Blob,
   config: SightengineConfig,
   sensitivity: Sensitivity,
-): Promise<{ verdict: Verdict; inferenceMs: number }> {
+): Promise<{ verdict: Verdict; nudity: SightengineNudity; inferenceMs: number }> {
   const params = new URLSearchParams({
     models:     "nudity-2.1",
     api_user:   config.apiUser,
@@ -216,7 +207,7 @@ export async function sightengineClassifyBlob(
   }
 
   const verdict = sightengineVerdictFromNudity(json.nudity, sensitivity);
-  return { verdict, inferenceMs };
+  return { verdict, nudity: json.nudity, inferenceMs };
 }
 
 function clamp(v: number): number {

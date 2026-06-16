@@ -2,6 +2,7 @@
 // Owns extension state, offscreen document lifecycle, and the classify round-trip.
 
 import type {
+  ApiBackend,
   BlurGuardMessage,
   BlurGuardState,
   ClassifyResultMessage,
@@ -13,6 +14,8 @@ import type {
 } from "./types/messages";
 import { assertNever } from "./types/messages";
 import { verdictFromPredictions } from "./lib/classifier";
+import { cacheGet, cacheSet, deriveVerdict } from "./lib/verdict-cache";
+import { CLOUD_BACKEND_ENABLED } from "./lib/featureFlags";
 
 const DEFAULT_STATE: BlurGuardState = {
   enabled: true,
@@ -27,6 +30,7 @@ const DEFAULT_STATE: BlurGuardState = {
     cloudErrors: 0,
   },
   cloudWarning: null,
+  allowlist: [],
 };
 
 // ── Cloud failure policy: FAIL-OPEN-BUT-LOUD ──────────────────────────────────
@@ -96,7 +100,41 @@ const MAX_SW_QUEUE = 100;
 const classifyQueue: QueueItem[] = [];
 let dispatchBusy = false;
 
+// ── Idle offscreen teardown ───────────────────────────────────────────────────
+// Chrome MV3 tears down the offscreen doc when the SW sleeps (~30 s inactivity).
+// We also close it proactively after OFFSCREEN_IDLE_MS of queue inactivity so
+// WebGL + model memory is released while the SW is still alive between bursts.
+// offscreenReady is reset so the next classify creates a fresh doc and re-pings.
+
+const OFFSCREEN_IDLE_MS = 30_000;
+let offscreenIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelOffscreenTeardown(): void {
+  if (offscreenIdleTimer !== null) {
+    clearTimeout(offscreenIdleTimer);
+    offscreenIdleTimer = null;
+  }
+}
+
+function scheduleOffscreenTeardown(): void {
+  cancelOffscreenTeardown();
+  offscreenIdleTimer = setTimeout(async () => {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+    });
+    if (contexts.length === 0) return;
+    try {
+      await chrome.offscreen.closeDocument();
+      offscreenReady = false;
+      console.log("[BlurGuard SW] offscreen closed after idle");
+    } catch (err) {
+      console.warn("[BlurGuard SW] offscreen close failed:", err);
+    }
+  }, OFFSCREEN_IDLE_MS);
+}
+
 function enqueueClassify(item: QueueItem): void {
+  cancelOffscreenTeardown();
   if (item.priority === "high") {
     classifyQueue.unshift(item);
     // Hard cap: trim the tail (all low-priority) if needed
@@ -112,7 +150,10 @@ function enqueueClassify(item: QueueItem): void {
 }
 
 function drainQueue(): void {
-  if (dispatchBusy || classifyQueue.length === 0) return;
+  if (dispatchBusy || classifyQueue.length === 0) {
+    if (!dispatchBusy && classifyQueue.length === 0) scheduleOffscreenTeardown();
+    return;
+  }
   dispatchBusy = true;
   const item = classifyQueue.shift()!;
   void processClassify(item).finally(() => {
@@ -156,7 +197,7 @@ async function processClassify(item: QueueItem): Promise<void> {
         `Last error: ${raw.cloudError.slice(0, 120)}`;
       console.warn(`[BlurGuard] cloudWarning set after ${cloudConsecutiveFailures} consecutive failures`);
     }
-    const nextState = buildCloudErrorState(state, id, url, kind, raw.cloudError, latencyMs, nextCloudWarning);
+    const nextState = buildCloudErrorState(state, id, url, kind, raw.cloudError, latencyMs, backend, nextCloudWarning);
     await chrome.storage.local.set({ blurguard: nextState });
     await notifyPopup(nextState);
     if (tabId !== undefined) {
@@ -188,6 +229,15 @@ async function processClassify(item: QueueItem): Promise<void> {
     verdict = verdictFromPredictions(raw.predictions, sensitivity);
   } else {
     return;
+  }
+
+  // ── Cache store ───────────────────────────────────────────────────────────
+  // Store raw scores so future hits can re-derive the verdict under any sensitivity.
+  // Cloud errors are not cached — only store on confirmed inference success.
+  if (raw?.predictions?.length) {
+    void cacheSet(url, { backend: "tfjs", predictions: raw.predictions, cachedAt: Date.now() });
+  } else if (raw?.nudity) {
+    void cacheSet(url, { backend: "sightengine", nudity: raw.nudity, cachedAt: Date.now() });
   }
 
   const latencyMs = Math.round(performance.now() - tDetected);
@@ -226,7 +276,7 @@ async function processClassify(item: QueueItem): Promise<void> {
   if (verdict.shouldBlock) {
     const nextState = buildNextState(
       state, id, url, kind, verdict,
-      raw.inferenceMs, raw.queueWaitMs, raw.decodeMs, latencyMs,
+      raw.inferenceMs, raw.queueWaitMs, raw.decodeMs, latencyMs, backend,
     );
     await chrome.storage.local.set({ blurguard: nextState });
     await notifyPopup(nextState);
@@ -382,6 +432,10 @@ async function handleMessage(
     }
 
     case "SET_API_BACKEND": {
+      // Silently refuse to activate the cloud backend in v1 builds.
+      if (!CLOUD_BACKEND_ENABLED && message.payload === "sightengine") {
+        return { ok: true };
+      }
       await updateState({ apiBackend: message.payload });
       await notifyPopup(await getState());
       return { ok: true };
@@ -390,6 +444,31 @@ async function handleMessage(
     case "SET_API_CONFIG": {
       // Stored under a separate key — never sent to content scripts.
       await chrome.storage.local.set({ [SIGHTENGINE_STORAGE_KEY]: message.payload });
+      return { ok: true };
+    }
+
+    case "ADD_ALLOWLIST_DOMAIN": {
+      const domain = message.payload.toLowerCase().trim();
+      if (!domain) return { ok: true };
+      const current = await getState();
+      if (!current.allowlist.includes(domain)) {
+        const nextAllowlist = [...current.allowlist, domain];
+        await updateState({ allowlist: nextAllowlist });
+        await broadcastToAllTabs({ type: "ALLOWLIST_UPDATED", payload: nextAllowlist });
+        await notifyPopup(await getState());
+      }
+      return { ok: true };
+    }
+
+    case "REMOVE_ALLOWLIST_DOMAIN": {
+      const domain = message.payload.toLowerCase().trim();
+      const current = await getState();
+      const nextAllowlist = current.allowlist.filter((d) => d !== domain);
+      if (nextAllowlist.length !== current.allowlist.length) {
+        await updateState({ allowlist: nextAllowlist });
+        await broadcastToAllTabs({ type: "ALLOWLIST_UPDATED", payload: nextAllowlist });
+        await notifyPopup(await getState());
+      }
       return { ok: true };
     }
 
@@ -417,6 +496,7 @@ async function handleMessage(
         confidence: detection.confidence,
         reasons: detection.reasons,
         timestamp: Date.now(),
+        backend: state.apiBackend,
         inferenceMs: 0,   // REPORT_DETECTION originates from content script, no offscreen timing
         queueWaitMs: 0,
         decodeMs: 0,
@@ -425,7 +505,7 @@ async function handleMessage(
 
       const nextState: BlurGuardState = {
         ...state,
-        feed: [event, ...state.feed].slice(0, 20),
+        feed: [event, ...state.feed].slice(0, 500),
         stats: {
           ...state.stats,
           images:
@@ -447,6 +527,7 @@ async function handleMessage(
     case "STATE_UPDATED":
     case "PROTECTION_TOGGLED":
     case "SENSITIVITY_CHANGED":
+    case "ALLOWLIST_UPDATED":
       return { ok: true };
 
     // ── Inference pipeline ────────────────────────────────────────────────────
@@ -461,6 +542,30 @@ async function handleMessage(
 
       const { id, url, kind, priority } = message.payload;
       const tabId = sender?.tab?.id;
+
+      // Cache check — re-derive verdict with current sensitivity and skip the queue.
+      const cached = await cacheGet(url);
+      if (cached) {
+        const verdict = deriveVerdict(cached, state.sensitivity);
+        const latencyMs = Math.round(performance.now() - tDetected);
+        console.log(
+          `[BlurGuard cache] HIT id=${id} verdict=${verdict.category} block=${verdict.shouldBlock}` +
+          ` url=${url.slice(0, 80)}`
+        );
+        if (tabId !== undefined) {
+          chrome.tabs.sendMessage(tabId, {
+            type: "BLUR_DECISION",
+            payload: { id, verdict, decodeMs: 0, inferenceMs: 0, queueWaitMs: 0, latencyMs },
+          }).catch(() => {});
+        }
+        if (verdict.shouldBlock) {
+          const nextState = buildNextState(state, id, url, kind, verdict, 0, 0, 0, latencyMs, cached.backend);
+          await chrome.storage.local.set({ blurguard: nextState });
+          await notifyPopup(nextState);
+        }
+        return { ok: true };
+      }
+      console.log(`[BlurGuard cache] MISS url=${url.slice(0, 80)}`);
 
       // Credentials are read here (SW has storage access) and forwarded per-request.
       // They never enter BlurGuardState or any broadcast to content scripts.
@@ -536,6 +641,7 @@ function buildNextState(
   queueWaitMs: number,
   decodeMs: number,
   latencyMs: number,
+  backend: ApiBackend,
 ): BlurGuardState {
   let domain = "unknown";
   try {
@@ -553,6 +659,7 @@ function buildNextState(
     confidence: verdict.confidence,
     reasons: verdict.reasons,
     timestamp: Date.now(),
+    backend,
     inferenceMs,
     queueWaitMs,
     decodeMs,
@@ -561,7 +668,7 @@ function buildNextState(
 
   return {
     ...state,
-    feed: [event, ...state.feed].slice(0, 20),
+    feed: [event, ...state.feed].slice(0, 500),
     stats: {
       ...state.stats,
       images: kind === "image" ? state.stats.images + 1 : state.stats.images,
@@ -581,6 +688,7 @@ function buildCloudErrorState(
   kind: "image" | "video",
   errorReason: string,
   latencyMs: number,
+  backend: ApiBackend,
   cloudWarning: string | null,
 ): BlurGuardState {
   let domain = "unknown";
@@ -597,6 +705,7 @@ function buildCloudErrorState(
     confidence: 0,
     reasons: [],
     timestamp: Date.now(),
+    backend,
     inferenceMs: 0,
     queueWaitMs: 0,
     decodeMs: 0,
@@ -607,7 +716,7 @@ function buildCloudErrorState(
 
   return {
     ...state,
-    feed: [event, ...state.feed].slice(0, 20),
+    feed: [event, ...state.feed].slice(0, 500),
     stats: {
       ...state.stats,
       cloudErrors: state.stats.cloudErrors + 1,
@@ -642,10 +751,13 @@ async function getState(): Promise<BlurGuardState> {
   return {
     ...DEFAULT_STATE,
     ...stored,
-    // Validate apiBackend in case storage holds a stale/unknown value.
-    apiBackend: stored.apiBackend === "sightengine" ? "sightengine" : "tfjs",
+    // Cloud backend is disabled at build time in v1 — coerce any stored preference
+    // back to "tfjs" so stale storage can never re-enable cloud on upgrade.
+    apiBackend: (CLOUD_BACKEND_ENABLED && stored.apiBackend === "sightengine") ? "sightengine" : "tfjs",
     // cloudWarning: explicit default handles older stored state that lacks this field.
     cloudWarning: stored.cloudWarning ?? null,
+    // allowlist: explicit default handles older stored state that lacks this field.
+    allowlist: Array.isArray(stored.allowlist) ? stored.allowlist : [],
     stats: {
       ...DEFAULT_STATE.stats,
       ...(stored.stats ?? {}),

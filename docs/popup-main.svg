@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 660" width="380" height="660">
+  <defs>
+    <linearGradient id="headerGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1a0a12"/>
+      <stop offset="100%" stop-color="#0d0d1a"/>
+    </linearGradient>
+    <linearGradient id="primaryGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#e91e8c"/>
+      <stop offset="100%" stop-color="#c2185b"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="24" stdDeviation="30" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+    <clipPath id="popupClip">
+      <rect x="10" y="10" width="360" height="640" rx="26"/>
+    </clipPath>
+  </defs>
+
+  <!-- Popup shell -->
+  <rect x="10" y="10" width="360" height="640" rx="26" fill="#0c0c0c" filter="url(#shadow)"/>
+
+  <!-- Header band -->
+  <rect x="10" y="10" width="360" height="72" rx="26" fill="url(#headerGrad)" clip-path="url(#popupClip)"/>
+  <rect x="10" y="56" width="360" height="26" fill="url(#headerGrad)"/>
+
+  <!-- Shield icon -->
+  <g transform="translate(30, 28)">
+    <path d="M11 2L3 6v5c0 4.97 3.45 9.63 8 10.93C16.55 20.63 20 15.97 20 11V6L11 2z" fill="#e91e8c" opacity="0.9"/>
+    <path d="M9 12l2 2 4-4" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- BlurGuard title -->
+  <text x="57" y="43" font-family="system-ui,-apple-system,sans-serif" font-size="15" font-weight="700" fill="#f2f2f2" letter-spacing="-0.3">BlurGuard</text>
+  <text x="57" y="59" font-family="system-ui,-apple-system,sans-serif" font-size="10" fill="#717171">Manifest V3 · on-device AI</text>
+
+  <!-- AI Active badge -->
+  <rect x="274" y="30" width="80" height="22" rx="11" fill="#0f2a1a"/>
+  <circle cx="287" cy="41" r="4" fill="#22c55e"/>
+  <circle cx="287" cy="41" r="4" fill="#22c55e" opacity="0.4">
+    <animate attributeName="r" values="4;7;4" dur="2s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.4;0;0.4" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  <text x="296" y="45" font-family="system-ui,-apple-system,sans-serif" font-size="10" font-weight="600" fill="#22c55e">AI Active</text>
+
+  <!-- Protection Status section -->
+  <text x="30" y="96" font-family="system-ui,-apple-system,sans-serif" font-size="9" font-weight="600" fill="#717171" letter-spacing="0.8">PROTECTION STATUS</text>
+
+  <!-- Stats cards row -->
+  <rect x="22" y="104" width="100" height="54" rx="10" fill="#161616" stroke="#242424" stroke-width="1"/>
+  <text x="72" y="125" font-family="system-ui,-apple-system,sans-serif" font-size="20" font-weight="700" fill="#f2f2f2" text-anchor="middle">142</text>
+  <text x="72" y="144" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171" text-anchor="middle">Images</text>
+
+  <rect x="130" y="104" width="100" height="54" rx="10" fill="#161616" stroke="#242424" stroke-width="1"/>
+  <text x="180" y="125" font-family="system-ui,-apple-system,sans-serif" font-size="20" font-weight="700" fill="#f2f2f2" text-anchor="middle">11</text>
+  <text x="180" y="144" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171" text-anchor="middle">Videos</text>
+
+  <rect x="238" y="104" width="100" height="54" rx="10" fill="#1a0712" stroke="#3d0e1e" stroke-width="1"/>
+  <text x="288" y="125" font-family="system-ui,-apple-system,sans-serif" font-size="20" font-weight="700" fill="#e91e8c" text-anchor="middle">9</text>
+  <text x="288" y="144" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#c2185b" text-anchor="middle">Blocked</text>
+
+  <!-- Detection Feed section -->
+  <text x="30" y="180" font-family="system-ui,-apple-system,sans-serif" font-size="9" font-weight="600" fill="#717171" letter-spacing="0.8">RECENT ACTIVITY</text>
+  <!-- Export buttons -->
+  <rect x="296" y="170" width="32" height="16" rx="4" fill="none" stroke="#242424"/>
+  <text x="312" y="181" font-family="system-ui,-apple-system,sans-serif" font-size="8" fill="#717171" text-anchor="middle">JSON</text>
+  <rect x="332" y="170" width="28" height="16" rx="4" fill="none" stroke="#242424"/>
+  <text x="346" y="181" font-family="system-ui,-apple-system,sans-serif" font-size="8" fill="#717171" text-anchor="middle">CSV</text>
+
+  <!-- Feed container -->
+  <rect x="22" y="188" width="336" height="164" rx="10" fill="#161616" stroke="#242424" stroke-width="1"/>
+
+  <!-- Feed entry 1 (red - explicit) -->
+  <circle cx="42" cy="211" r="4" fill="#ef4444"/>
+  <text x="54" y="208" font-family="system-ui,-apple-system,sans-serif" font-size="11" fill="#f2f2f2">Explicit image blocked on</text>
+  <text x="54" y="208" font-family="system-ui,-apple-system,sans-serif" font-size="11" fill="#f2f2f2">                            </text>
+  <text x="199" y="208" font-family="system-ui,-apple-system,sans-serif" font-size="11" font-weight="600" fill="#e91e8c">reddit.com</text>
+  <text x="54" y="221" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171">3s ago · 91% conf. · 84ms · Porn class.</text>
+
+  <!-- Divider -->
+  <line x1="30" y1="232" x2="350" y2="232" stroke="#1e1e1e" stroke-width="1"/>
+
+  <!-- Feed entry 2 (amber - suggestive) -->
+  <circle cx="42" cy="253" r="4" fill="#f59e0b"/>
+  <text x="54" y="250" font-family="system-ui,-apple-system,sans-serif" font-size="11" fill="#f2f2f2">Suggestive content blocked on</text>
+  <text x="233" y="250" font-family="system-ui,-apple-system,sans-serif" font-size="11" font-weight="600" fill="#e91e8c">twitter.com</text>
+  <text x="54" y="263" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171">18s ago · 74% conf. · 67ms · Sexy class.</text>
+
+  <!-- Divider -->
+  <line x1="30" y1="274" x2="350" y2="274" stroke="#1e1e1e" stroke-width="1"/>
+
+  <!-- Feed entry 3 (red) -->
+  <circle cx="42" cy="295" r="4" fill="#ef4444"/>
+  <text x="54" y="292" font-family="system-ui,-apple-system,sans-serif" font-size="11" fill="#f2f2f2">Explicit image blocked on</text>
+  <text x="199" y="292" font-family="system-ui,-apple-system,sans-serif" font-size="11" font-weight="600" fill="#e91e8c">tumblr.com</text>
+  <text x="54" y="305" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171">1m ago · 88% conf. · 92ms · Hentai class.</text>
+
+  <!-- Divider -->
+  <line x1="30" y1="316" x2="350" y2="316" stroke="#1e1e1e" stroke-width="1"/>
+
+  <!-- Feed entry 4 (green - low) -->
+  <circle cx="42" cy="337" r="4" fill="#22c55e"/>
+  <text x="54" y="334" font-family="system-ui,-apple-system,sans-serif" font-size="11" fill="#f2f2f2">Suggestive content blocked on</text>
+  <text x="233" y="334" font-family="system-ui,-apple-system,sans-serif" font-size="11" font-weight="600" fill="#e91e8c">imgur.com</text>
+  <text x="54" y="347" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171">4m ago · 62% conf. · 58ms</text>
+
+  <!-- Sensitivity Control -->
+  <text x="30" y="375" font-family="system-ui,-apple-system,sans-serif" font-size="9" font-weight="600" fill="#717171" letter-spacing="0.8">SENSITIVITY</text>
+
+  <!-- Sensitivity buttons -->
+  <rect x="22" y="382" width="336" height="38" rx="10" fill="#161616" stroke="#242424" stroke-width="1"/>
+  <!-- Low button -->
+  <rect x="28" y="387" width="106" height="27" rx="7" fill="none"/>
+  <text x="81" y="405" font-family="system-ui,-apple-system,sans-serif" font-size="11" fill="#717171" text-anchor="middle" font-weight="500">Low</text>
+  <!-- Balanced button (selected) -->
+  <rect x="138" y="387" width="106" height="27" rx="7" fill="#e91e8c" opacity="0.15"/>
+  <rect x="138" y="387" width="106" height="27" rx="7" fill="none" stroke="#e91e8c" stroke-width="1" opacity="0.6"/>
+  <text x="191" y="405" font-family="system-ui,-apple-system,sans-serif" font-size="11" fill="#e91e8c" text-anchor="middle" font-weight="600">Balanced</text>
+  <!-- Strict button -->
+  <rect x="248" y="387" width="104" height="27" rx="7" fill="none"/>
+  <text x="300" y="405" font-family="system-ui,-apple-system,sans-serif" font-size="11" fill="#717171" text-anchor="middle" font-weight="500">Strict</text>
+
+  <!-- Classification Engine section -->
+  <text x="30" y="444" font-family="system-ui,-apple-system,sans-serif" font-size="9" font-weight="600" fill="#717171" letter-spacing="0.8">CLASSIFICATION ENGINE</text>
+  <rect x="22" y="450" width="336" height="50" rx="10" fill="#161616" stroke="#242424" stroke-width="1"/>
+  <!-- CPU icon -->
+  <rect x="36" y="462" width="14" height="14" rx="2" fill="none" stroke="#e91e8c" stroke-width="1.5"/>
+  <rect x="39" y="459" width="2" height="3" rx="1" fill="#e91e8c"/>
+  <rect x="44" y="459" width="2" height="3" rx="1" fill="#e91e8c"/>
+  <rect x="39" y="476" width="2" height="3" rx="1" fill="#e91e8c"/>
+  <rect x="44" y="476" width="2" height="3" rx="1" fill="#e91e8c"/>
+  <rect x="33" y="462" width="3" height="2" rx="1" fill="#e91e8c"/>
+  <rect x="50" y="462" width="3" height="2" rx="1" fill="#e91e8c"/>
+  <rect x="33" y="469" width="3" height="2" rx="1" fill="#e91e8c"/>
+  <rect x="50" y="469" width="3" height="2" rx="1" fill="#e91e8c"/>
+  <text x="58" y="470" font-family="system-ui,-apple-system,sans-serif" font-size="11" font-weight="600" fill="#f2f2f2">On-device only</text>
+  <text x="58" y="484" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171">No URLs, no pixels, no data leave your device.</text>
+
+  <!-- Quick Actions -->
+  <rect x="22" y="516" width="160" height="36" rx="10" fill="#161616" stroke="#242424" stroke-width="1"/>
+  <text x="102" y="539" font-family="system-ui,-apple-system,sans-serif" font-size="11" fill="#f2f2f2" text-anchor="middle" font-weight="500">Disable Protection</text>
+
+  <rect x="190" y="516" width="168" height="36" rx="10" fill="#161616" stroke="#242424" stroke-width="1"/>
+  <text x="274" y="539" font-family="system-ui,-apple-system,sans-serif" font-size="11" fill="#f2f2f2" text-anchor="middle" font-weight="500">Pause 5 min</text>
+
+  <!-- Safety Insights -->
+  <text x="30" y="577" font-family="system-ui,-apple-system,sans-serif" font-size="9" font-weight="600" fill="#717171" letter-spacing="0.8">SAFETY INSIGHTS</text>
+  <rect x="22" y="584" width="336" height="54" rx="10" fill="#161616" stroke="#242424" stroke-width="1"/>
+  <!-- Sparkline bars -->
+  <rect x="34" y="620" width="6" height="8" rx="2" fill="#e91e8c" opacity="0.3"/>
+  <rect x="42" y="616" width="6" height="12" rx="2" fill="#e91e8c" opacity="0.4"/>
+  <rect x="50" y="611" width="6" height="17" rx="2" fill="#e91e8c" opacity="0.6"/>
+  <rect x="58" y="607" width="6" height="21" rx="2" fill="#e91e8c" opacity="0.7"/>
+  <rect x="66" y="612" width="6" height="16" rx="2" fill="#e91e8c" opacity="0.6"/>
+  <rect x="74" y="608" width="6" height="20" rx="2" fill="#e91e8c" opacity="0.8"/>
+  <rect x="82" y="603" width="6" height="25" rx="2" fill="#e91e8c"/>
+  <text x="100" y="604" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171">Top blocked: reddit.com, twitter.com</text>
+  <text x="100" y="618" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171">Avg confidence: 79% · 84ms avg inference</text>
+  <text x="100" y="632" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#717171">6.3% of scanned images blocked</text>
+</svg>

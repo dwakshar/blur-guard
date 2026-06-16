@@ -2,6 +2,7 @@
 // Root popup page. Pulls live state from useBlurGuard and distributes
 // it to every child component as props — single source of truth.
 
+import AllowlistControl from "@/components/blurguard/AllowlistControl";
 import ApiBackendControl from "@/components/blurguard/ApiBackendControl";
 import DetectionFeed from "@/components/blurguard/DetectionFeed";
 import Header from "@/components/blurguard/Header";
@@ -14,8 +15,8 @@ import { useCallback } from "react";
 
 const Index = () => {
   const {
-    state, loading, resetStats, setEnabled, setPaused, setSensitivity,
-    setApiBackend, setApiConfig, apiConfig,
+    state, loading, activeDomain, resetStats, setEnabled, setPaused, setSensitivity,
+    setApiBackend, setApiConfig, apiConfig, addAllowlistDomain, removeAllowlistDomain,
   } = useBlurGuard();
   const resumeProtection = useCallback(() => {
     setEnabled(true);
@@ -56,6 +57,13 @@ const Index = () => {
               onPause={() => setPaused()}
               onResume={resumeProtection}
               onResetStats={resetStats}
+            />
+
+            <AllowlistControl
+              allowlist={state.allowlist}
+              activeDomain={activeDomain}
+              onAdd={addAllowlistDomain}
+              onRemove={removeAllowlistDomain}
             />
 
             <SafetyInsights stats={state.stats} feed={state.feed} />

@@ -22,10 +22,12 @@ import type {
   Prediction,
   Sensitivity,
   SightengineConfig,
+  SightengineNudity,
   Verdict,
 } from "./types/messages";
 import { assertNever } from "./types/messages";
 import { sightengineClassifyBlob } from "./lib/sightengine";
+import { CLOUD_BACKEND_ENABLED } from "./lib/featureFlags";
 
 // ── Model init ────────────────────────────────────────────────────────────────
 // Runs in the background at offscreen-doc load time; NOT awaited at PING time.
@@ -38,6 +40,7 @@ const modelReady: Promise<void> = initModel().catch((err) => {
 });
 
 async function initModel(): Promise<void> {
+  const t0 = performance.now();
   setWasmPaths(chrome.runtime.getURL("wasm/"));
 
   try {
@@ -46,24 +49,28 @@ async function initModel(): Promise<void> {
     if (tf.getBackend() !== "webgl") {
       throw new Error(`expected webgl, got ${tf.getBackend()}`);
     }
-    console.log("[BlurGuard offscreen] backend: webgl ✓");
+    console.log(`[BlurGuard offscreen] backend: webgl ✓  backendMs=${Math.round(performance.now() - t0)}`);
   } catch (err) {
     console.warn("[BlurGuard offscreen] webgl unavailable, falling back to wasm:", err);
     await tf.setBackend("wasm");
     await tf.ready();
-    console.log("[BlurGuard offscreen] backend:", tf.getBackend(), "✓");
+    console.log(`[BlurGuard offscreen] backend: ${tf.getBackend()} ✓  backendMs=${Math.round(performance.now() - t0)}`);
   }
 
+  const tLoad = performance.now();
   const modelUrl = chrome.runtime.getURL("models/nsfwjs/model.json");
   console.log("[BlurGuard offscreen] loading model:", modelUrl);
   nsfwModel = await nsfwLoad(modelUrl, { type: "graph" });
-  console.log("[BlurGuard offscreen] model loaded ✓");
+  console.log(`[BlurGuard offscreen] model loaded ✓  loadMs=${Math.round(performance.now() - tLoad)}`);
 
+  const tWarmup = performance.now();
   const dummy = document.createElement("canvas");
   dummy.width = 1;
   dummy.height = 1;
   await nsfwModel.classify(dummy);
-  console.log("[BlurGuard offscreen] warmup done ✓");
+  console.log(
+    `[BlurGuard offscreen] warmup done ✓  warmupMs=${Math.round(performance.now() - tWarmup)}  totalColdLoadMs=${Math.round(performance.now() - t0)}`
+  );
 }
 
 // ── Inbound message narrowing ─────────────────────────────────────────────────
@@ -143,6 +150,7 @@ const urlInFlight = new Map<string, Promise<SharedResult>>();
 type ClassifyResult = {
   predictions?: Prediction[];  // tfjs path
   verdict?: Verdict;           // sightengine success
+  nudity?: SightengineNudity;  // sightengine raw scores — forwarded to SW for caching
   cloudError?: string;         // sightengine failure — raw reason, no verdict
   decodeMs: number;
   inferenceMs: number;
@@ -185,6 +193,11 @@ async function runClassify(
   // ── Phase B: fork on backend ──────────────────────────────────────────────
 
   if (backend === "sightengine") {
+    // CLOUD_BACKEND_ENABLED is false in v1 — this guard is always true, making the
+    // runSightengineClassify() call below unreachable dead code that Rollup eliminates.
+    if (!CLOUD_BACKEND_ENABLED) {
+      return { cloudError: "Cloud backend disabled in this build", decodeMs: fetchMs, inferenceMs: 0, queueWaitMs: 0 };
+    }
     return runSightengineClassify(blob, fetchMs, sensitivity, sightengineConfig);
   }
 
@@ -210,12 +223,12 @@ async function runSightengineClassify(
   }
 
   try {
-    const { verdict, inferenceMs } = await sightengineClassifyBlob(blob, config, sensitivity);
+    const { verdict, nudity, inferenceMs } = await sightengineClassifyBlob(blob, config, sensitivity);
     console.log(
       `[BlurGuard offscreen] sightengine  fetchMs=${fetchMs}  inferenceMs=${inferenceMs}` +
       `  verdict=${verdict.category}  block=${verdict.shouldBlock}`
     );
-    return { verdict, decodeMs: fetchMs, inferenceMs, queueWaitMs: 0 };
+    return { verdict, nudity, decodeMs: fetchMs, inferenceMs, queueWaitMs: 0 };
   } catch (err) {
     // Re-throw as a structured cloudError string — the SW decides the fail policy,
     // not the offscreen.  We do NOT return a safe verdict here (that would hide the gap).
@@ -236,31 +249,32 @@ async function runTfjsClassify(
   // Block until backend + model + warmup complete (first call only; no-op after).
   await modelReady;
 
-  // Draw blob to canvas: nsfwjs calls tf.browser.fromPixels which accepts
-  // HTMLCanvasElement reliably; raw ImageBitmap support varies by TF.js version.
-  // SVGs fail createImageBitmap without size hints (and carry near-zero NSFW risk).
+  // Decode blob → HTMLImageElement.  tf.browser.fromPixels(img) reads the image's
+  // raw decoded bytes directly.  The old createImageBitmap → 2D-canvas path ran the
+  // pixels through the canvas compositor which premultiplied the alpha channel —
+  // zeroing RGB wherever alpha < 255 — and collapsed all real photographs to ~97%
+  // Drawing because the model received a near-zero tensor.
+  // SVGs fail img.onload in an offscreen doc without explicit size attributes.
   if (blob.type === "image/svg+xml" || blob.type === "image/svg") {
     return { predictions: safeDefault(), decodeMs: fetchMs, inferenceMs: 0, queueWaitMs: 0 };
   }
 
-  let bitmap: ImageBitmap;
-  let width: number;
-  let height: number;
+  const objectUrl = URL.createObjectURL(blob);
+  const img = new Image();
   try {
-    bitmap = await createImageBitmap(blob);
-    width = bitmap.width;
-    height = bitmap.height;
+    await new Promise<void>((res, rej) => {
+      img.onload  = () => res();
+      img.onerror = () => rej(new Error("img load failed"));
+      img.src = objectUrl;
+    });
   } catch (err) {
-    const msg = err instanceof DOMException ? `${err.name}: ${err.message}` : String(err);
-    console.warn("[BlurGuard offscreen] createImageBitmap failed:", msg, "type:", blob.type, "size:", blob.size);
+    URL.revokeObjectURL(objectUrl);
+    console.warn("[BlurGuard offscreen] image decode failed:", err, "type:", blob.type, "size:", blob.size);
     return { predictions: safeDefault(), decodeMs: fetchMs, inferenceMs: 0, queueWaitMs: 0 };
   }
-
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
-  bitmap.close();
+  // Safe to revoke immediately — the browser already decoded into GPU/CPU memory.
+  // tf.browser.fromPixels(img) reads from the decoded pixel data, not the URL.
+  URL.revokeObjectURL(objectUrl);
 
   // Coalesce: same URL already queued or running — share the classify() result.
   const inflight = urlInFlight.get(url);
@@ -289,7 +303,7 @@ async function runTfjsClassify(
       let inferenceMs = 0;
       try {
         const tInfer = performance.now();
-        const raw = await nsfwModel!.classify(canvas);
+        const raw = await nsfwModel!.classify(img);
         inferenceMs = Math.round(performance.now() - tInfer);
         predictions = raw as Prediction[];
       } catch (err) {
@@ -317,3 +331,4 @@ function safeDefault(): Prediction[] {
     { className: "Sexy",    probability: 0 },
   ];
 }
+

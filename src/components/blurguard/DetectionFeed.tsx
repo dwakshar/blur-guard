@@ -3,6 +3,7 @@
 // Highlights the newest event with a subtle flash animation.
 
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { exportFeedAsCsv, exportFeedAsJson } from "@/lib/feedExport";
 import type { DetectionEvent } from "@/types/messages";
 
 interface Props {
@@ -51,9 +52,29 @@ function feedLabel(event: DetectionEvent): string {
 const DetectionFeed = ({ feed }: Props) => {
   return (
     <div className="mx-4">
-      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-        Recent Activity
-      </h3>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Recent Activity
+        </h3>
+        {feed.length > 0 && (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => exportFeedAsJson(feed)}
+              className="text-[10px] font-medium text-muted-foreground/70 hover:text-foreground px-1.5 py-0.5 rounded border border-border/50 hover:border-border transition-colors"
+              title="Export feed as JSON"
+            >
+              JSON
+            </button>
+            <button
+              onClick={() => exportFeedAsCsv(feed)}
+              className="text-[10px] font-medium text-muted-foreground/70 hover:text-foreground px-1.5 py-0.5 rounded border border-border/50 hover:border-border transition-colors"
+              title="Export feed as CSV"
+            >
+              CSV
+            </button>
+          </div>
+        )}
+      </div>
 
       <ScrollArea className="h-[160px] rounded-lg bg-card border border-border">
         {feed.length === 0 ? (

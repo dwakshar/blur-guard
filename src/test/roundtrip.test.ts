@@ -17,6 +17,16 @@ import type {
   Prediction,
 } from "../types/messages";
 import { verdictFromPredictions } from "../lib/classifier";
+import { resetMemoryStore } from "../lib/verdict-cache";
+
+// Flush microtask + one macrotask tick so detached processClassify chains complete
+// before assertions run.  Phase 2 made CLASSIFY_REQUEST return {ok:true} immediately
+// after enqueue; without this flush, tests that inspect side-effects of processClassify
+// (offscreen creation, BLUR_DECISION delivery, cache writes) would race.
+async function flushAsync(): Promise<void> {
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+  await new Promise<void>((r) => setTimeout(r, 10));
+}
 
 // ── Chrome API stub ───────────────────────────────────────────────────────────
 // Set up at module level so the stub is in place when background.ts is dynamically
@@ -147,6 +157,9 @@ beforeEach(() => {
   storedState.enabled = true;
   storedState.pausedUntil = 0;
   storedState.sensitivity = "balanced";
+  // Reset the verdict-cache in-memory store so URLs cached in previous tests
+  // don't produce unexpected cache hits in the next test.
+  resetMemoryStore();
   vi.mocked(chrome.offscreen.createDocument).mockClear();
   vi.mocked(chrome.tabs.sendMessage).mockClear();
   vi.mocked(chrome.runtime.sendMessage).mockClear();
@@ -181,6 +194,7 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
       type: "CLASSIFY_REQUEST",
       payload: { id: "rt-1", url: "https://example.com/img.jpg", kind: "image", priority: "high" },
     } satisfies ClassifyRequestMessage);
+    await flushAsync();
 
     expect(offscreenDocCount).toBe(1);
   });
@@ -192,6 +206,7 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
       type: "CLASSIFY_REQUEST",
       payload: { id: "rt-2", url: "https://example.com/img.jpg", kind: "image", priority: "high" },
     } satisfies ClassifyRequestMessage);
+    await flushAsync();
 
     expect(offscreenDocCount).toBe(0);
   });
@@ -201,6 +216,7 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
       type: "CLASSIFY_REQUEST",
       payload: { id: "rt-3", url: "https://example.com/img.jpg", kind: "image", priority: "high" },
     } satisfies ClassifyRequestMessage);
+    await flushAsync();
 
     const forwarded = runtimeMessages.find(
       (m) => (m as { type: string }).type === "OFFSCREEN_CLASSIFY"
@@ -220,6 +236,7 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
       } satisfies ClassifyRequestMessage,
       { tab: { id: 77 } }
     );
+    await flushAsync();
 
     const decision = sentBlurDecision("rt-4");
     expect(decision).toBeDefined();
@@ -234,6 +251,7 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
       type: "CLASSIFY_REQUEST",
       payload: { id: "my-unique-id", url: "https://example.com/img.jpg", kind: "image", priority: "high" },
     } satisfies ClassifyRequestMessage);
+    await flushAsync();
 
     const decision = sentBlurDecision("my-unique-id");
     expect(decision?.payload.id).toBe("my-unique-id");
@@ -258,6 +276,7 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
       type: "CLASSIFY_REQUEST",
       payload: { id: "ms-test", url: "https://example.com/img.jpg", kind: "image", priority: "high" },
     } satisfies ClassifyRequestMessage);
+    await flushAsync();
 
     const decision = sentBlurDecision("ms-test");
     expect(decision?.payload.inferenceMs).toBe(123);
@@ -269,6 +288,7 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
       type: "CLASSIFY_REQUEST",
       payload: { id: "safe-rt", url: "https://example.com/safe.jpg", kind: "image", priority: "high" },
     } satisfies ClassifyRequestMessage);
+    await flushAsync();
 
     const decision = sentBlurDecision("safe-rt");
     expect(decision?.payload.verdict.shouldBlock).toBe(false);
@@ -282,6 +302,7 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
       type: "CLASSIFY_REQUEST",
       payload: { id: "nsfw-rt", url: "https://example.com/nsfw.jpg", kind: "image", priority: "high" },
     } satisfies ClassifyRequestMessage);
+    await flushAsync();
 
     const decision = sentBlurDecision("nsfw-rt");
     expect(decision?.payload.verdict.shouldBlock).toBe(true);
@@ -296,6 +317,7 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
       type: "CLASSIFY_REQUEST",
       payload: { id: "block-state", url: "https://example.com/nsfw.jpg", kind: "image", priority: "high" },
     } satisfies ClassifyRequestMessage);
+    await flushAsync();
 
     const stateMsg = runtimeMessages.find(
       (m) => (m as { type: string }).type === "STATE_UPDATED"
@@ -308,6 +330,7 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
       type: "CLASSIFY_REQUEST",
       payload: { id: "safe-state", url: "https://example.com/safe.jpg", kind: "image", priority: "high" },
     } satisfies ClassifyRequestMessage);
+    await flushAsync();
 
     const stateMsg = runtimeMessages.find(
       (m) => (m as { type: string }).type === "STATE_UPDATED"
@@ -322,6 +345,7 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
       type: "CLASSIFY_REQUEST",
       payload: { id: "disabled-rt", url: "https://example.com/img.jpg", kind: "image", priority: "high" },
     } satisfies ClassifyRequestMessage);
+    await flushAsync();
 
     expect(sentBlurDecision("disabled-rt")).toBeUndefined();
     expect(offscreenDocCount).toBe(0);
@@ -334,6 +358,7 @@ describe("CLASSIFY_REQUEST → BLUR_DECISION round-trip", () => {
       type: "CLASSIFY_REQUEST",
       payload: { id: "paused-rt", url: "https://example.com/img.jpg", kind: "image", priority: "high" },
     } satisfies ClassifyRequestMessage);
+    await flushAsync();
 
     expect(sentBlurDecision("paused-rt")).toBeUndefined();
   });

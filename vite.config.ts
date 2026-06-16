@@ -6,6 +6,13 @@ export default defineConfig({
   base: "./",
   plugins: [react()],
 
+  // Build-time constants — Rollup replaces these with literals and dead-code-eliminates
+  // branches gated on false values. __CLOUD_ENABLED__: false strips the Sightengine
+  // module from the v1 bundle entirely. Flip to true for v1.1.
+  define: {
+    __CLOUD_ENABLED__: false,
+  },
+
   resolve: {
     alias: {
       "@": resolve(__dirname, "./src"),
