@@ -169,7 +169,7 @@ const videoFrameSampler = new VideoFrameSampler(
     viewportObserver?.observe(el);
     sendToBackground({
       type: "CLASSIFY_REQUEST",
-      payload: { id: frameId, url, kind: "video", priority },
+      payload: { id: frameId, url, kind: "video", priority, pageUrl: document.URL },
     });
   },
   (id) => pending.has(id),
@@ -444,7 +444,7 @@ async function scanElement(
 
   sendToBackground({
     type: "CLASSIFY_REQUEST",
-    payload: { id, url, kind, priority },
+    payload: { id, url, kind, priority, pageUrl: document.URL },
   });
 }
 

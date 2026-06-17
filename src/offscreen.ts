@@ -109,8 +109,8 @@ async function dispatch(
       return;
 
     case "OFFSCREEN_CLASSIFY": {
-      const { id, url, backend, sensitivity, sightengineConfig } = message.payload;
-      const result = await runClassify(url, backend, sensitivity, sightengineConfig);
+      const { id, url, backend, sensitivity, sightengineConfig, pageUrl } = message.payload;
+      const result = await runClassify(url, backend, sensitivity, sightengineConfig, pageUrl);
       sendResponse({ id, ...result });
       return;
     }
@@ -164,6 +164,7 @@ async function runClassify(
   backend: "tfjs" | "sightengine",
   sensitivity: Sensitivity,
   sightengineConfig?: SightengineConfig,
+  pageUrl?: string,
 ): Promise<ClassifyResult> {
   // ── Phase A: fetch image as extension origin ──────────────────────────────
   // Parallel-safe: network I/O does not touch the GPU or Sightengine's quota.
@@ -171,7 +172,12 @@ async function runClassify(
 
   let blob: Blob;
   try {
-    const response = await fetch(url, { credentials: "omit" });
+    const fetchInit: RequestInit = { credentials: "omit" };
+    if (pageUrl) {
+      fetchInit.referrer = pageUrl;
+      fetchInit.referrerPolicy = "strict-origin-when-cross-origin";
+    }
+    const response = await fetch(url, fetchInit);
     if (!response.ok) {
       console.warn("[BlurGuard offscreen] fetch non-OK:", response.status, url);
       // Fail-closed: no predictions → SW hits else{return} → no BLUR_DECISION → element stays blurred.

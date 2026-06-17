@@ -184,6 +184,7 @@ export interface ClassifyRequestMessage {
     url: string;              // resolved absolute src of the element
     kind: "image" | "video";
     priority: "high" | "low"; // high = in/near viewport; low = off-screen
+    pageUrl?: string;         // page origin for Referer header — lets image proxies accept the fetch
   };
 }
 
@@ -214,6 +215,7 @@ export interface OffscreenClassifyMessage {
     backend: "tfjs" | "sightengine";
     sensitivity: Sensitivity;
     sightengineConfig?: SightengineConfig; // only when backend === "sightengine"
+    pageUrl?: string;                      // forwarded from content for Referer header
   };
 }
 

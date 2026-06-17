@@ -90,6 +90,7 @@ interface QueueItem {
   kind: "image" | "video";
   priority: "high" | "low";
   backend: "tfjs" | "sightengine";
+  pageUrl?: string;
   sensitivity: Sensitivity;
   sightengineConfig?: SightengineConfig;
   tabId: number | undefined;
@@ -163,7 +164,7 @@ function drainQueue(): void {
 }
 
 async function processClassify(item: QueueItem): Promise<void> {
-  const { id, url, kind, backend, sensitivity, sightengineConfig, tabId, tDetected } = item;
+  const { id, url, kind, backend, sensitivity, sightengineConfig, pageUrl, tabId, tDetected } = item;
 
   // Re-check: state may have changed while item sat in queue.
   const state = await getState();
@@ -176,7 +177,7 @@ async function processClassify(item: QueueItem): Promise<void> {
   try {
     raw = (await chrome.runtime.sendMessage({
       type: "OFFSCREEN_CLASSIFY",
-      payload: { id, url, kind, backend, sensitivity, sightengineConfig },
+      payload: { id, url, kind, backend, sensitivity, sightengineConfig, pageUrl },
     })) as ClassifyResultMessage["payload"];
   } catch (err) {
     console.error("[BlurGuard SW] offscreen classify error:", err);
@@ -540,7 +541,7 @@ async function handleMessage(
       const state = await getState();
       if (!state.enabled || state.pausedUntil > Date.now()) return { ok: true };
 
-      const { id, url, kind, priority } = message.payload;
+      const { id, url, kind, priority, pageUrl } = message.payload;
       const tabId = sender?.tab?.id;
 
       // Cache check — re-derive verdict with current sensitivity and skip the queue.
@@ -584,6 +585,7 @@ async function handleMessage(
         backend: state.apiBackend,
         sensitivity: state.sensitivity,
         sightengineConfig,
+        pageUrl,
         tabId,
         tDetected,
       });

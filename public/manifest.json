@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "BlurGuard",
   "version": "1.0.0",
-  "description": "Bonking NSFW tabs before you see them.",
+  "description": "Detects explicit images and videos on-device and blurs them. No data leaves your browser.",
 
   "action": {
     "default_popup": "index.html",
@@ -31,17 +31,9 @@
     }
   ],
 
-  "permissions": [
-    "storage",
-    "activeTab",
-    "scripting",
-    "tabs",
-    "offscreen"
-  ],
+  "permissions": ["storage", "activeTab", "scripting", "tabs", "offscreen"],
 
-  "host_permissions": [
-    "<all_urls>"
-  ],
+  "host_permissions": ["<all_urls>"],
 
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
