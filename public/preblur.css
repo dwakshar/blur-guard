@@ -1,0 +1,21 @@
+/*
+ * BlurGuard pre-blur — document_start default
+ *
+ * All <img> and <video> elements render blurred until the content script
+ * classifies them and adds .bg-cleared (SAFE verdict) or wraps them in the
+ * permanent overlay (EXPLICIT/SUSPICIOUS verdict).
+ *
+ * Fail-closed: elements stay blurred on pending, errored, or timed-out verdicts.
+ *
+ * Size-threshold clear: elements below MIN_MEDIA_OVERLAY_EDGE / MIN_MEDIA_OVERLAY_AREA
+ * get .bg-cleared immediately in JS once layout resolves — static CSS cannot know
+ * rendered dimensions at parse time.
+ *
+ * Allowlisted domains: the content script adds .bg-cleared to all elements on
+ * bootstrap so trusted sites are never blurry.
+ */
+img:not(.bg-cleared),
+video:not(.bg-cleared) {
+  filter: blur(22px) !important;
+  transform: translateZ(0); /* GPU compositing layer — prevents repaint on reveal */
+}

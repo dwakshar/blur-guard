@@ -25,6 +25,13 @@ interface Props {
 }
 
 const ApiBackendControl = ({ apiBackend, apiConfig, onSetApiBackend, onSetApiConfig }: Props) => {
+  const [pendingCloud, setPendingCloud] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
+  const [apiUser, setApiUser] = useState(apiConfig?.apiUser ?? "");
+  const [apiSecret, setApiSecret] = useState(apiConfig?.apiSecret ?? "");
+  const [dirty, setDirty] = useState(false);
+  const userRef = useRef<HTMLInputElement>(null);
+
   // Cloud backend is disabled at build time in v1.  Render the on-device-only label
   // so users see their privacy status; the toggle and credential fields are absent.
   if (!CLOUD_BACKEND_ENABLED) {
@@ -46,13 +53,6 @@ const ApiBackendControl = ({ apiBackend, apiConfig, onSetApiBackend, onSetApiCon
       </div>
     );
   }
-
-  const [pendingCloud, setPendingCloud] = useState(false);
-  const [showSecret, setShowSecret] = useState(false);
-  const [apiUser, setApiUser] = useState(apiConfig?.apiUser ?? "");
-  const [apiSecret, setApiSecret] = useState(apiConfig?.apiSecret ?? "");
-  const [dirty, setDirty] = useState(false);
-  const userRef = useRef<HTMLInputElement>(null);
 
   const isCloud = apiBackend === "sightengine";
   const hasCreds = !!apiConfig?.apiUser && !!apiConfig?.apiSecret;

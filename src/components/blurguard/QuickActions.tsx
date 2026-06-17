@@ -30,6 +30,7 @@ const QuickActions = ({
   onResume,
 }: Props) => {
   const [remainingMs, setRemainingMs] = useState(0);
+  const [confirmingReset, setConfirmingReset] = useState(false);
   const isPaused = pausedUntil > Date.now();
 
   useEffect(() => {
@@ -53,6 +54,12 @@ const QuickActions = ({
 
     return () => window.clearInterval(timer);
   }, [onResume, pausedUntil]);
+
+  useEffect(() => {
+    if (!confirmingReset) return;
+    const t = window.setTimeout(() => setConfirmingReset(false), 3000);
+    return () => window.clearTimeout(t);
+  }, [confirmingReset]);
 
   return (
     <div className="mx-4 space-y-2">
@@ -89,15 +96,22 @@ const QuickActions = ({
 
       <Button
         onClick={() => {
-          if (window.confirm("Reset all BlurGuard statistics?")) {
+          if (confirmingReset) {
             onResetStats();
+            setConfirmingReset(false);
+          } else {
+            setConfirmingReset(true);
           }
         }}
         variant="outline"
-        className="w-full text-xs h-9 font-medium border-border hover:bg-secondary"
+        className={`w-full text-xs h-9 font-medium transition-colors ${
+          confirmingReset
+            ? "border-destructive/50 text-destructive hover:bg-destructive/10"
+            : "border-border hover:bg-secondary"
+        }`}
         size="sm">
         <RotateCcw className="h-3.5 w-3.5" />
-        Reset Stats
+        {confirmingReset ? "Confirm reset?" : "Reset Stats"}
       </Button>
     </div>
   );

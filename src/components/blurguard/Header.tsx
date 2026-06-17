@@ -10,7 +10,7 @@ const Header = ({ enabled }: Props) => {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="relative">
-            <Shield className="h-7 w-7 text-primary" strokeWidth={2.5} />
+            <Shield className="h-7 w-7 text-primary relative z-10" strokeWidth={2.5} />
             <div className="absolute inset-0 blur-md bg-primary/30 rounded-full" />
           </div>
           <span className="text-lg font-bold tracking-tight text-foreground">

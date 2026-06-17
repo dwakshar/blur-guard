@@ -1,7 +1,7 @@
 // src/content.ts
 // BlurGuard - Content Script
 // Phase 0.6: async classify via SW (CLASSIFY_REQUEST / BLUR_DECISION round-trip).
-// Local pattern classifier removed; overlay logic is unchanged.
+// Phase 3: block-by-default pre-blur injected at document_start; JS reveals on SAFE verdict.
 
 import { applyContextBlur, applyOverlay, removeAllOverlays } from "./lib/blurOverlay";
 import { startDetector, stopDetector } from "./lib/mediaDetector";
@@ -12,6 +12,62 @@ import type {
   BlurGuardState,
   Sensitivity,
 } from "./types/messages";
+
+// ─── Pre-blur constants ───────────────────────────────────────────────────────
+//
+// preblur.css (injected at document_start) applies filter:blur(22px) to every
+// img and video that lacks .bg-cleared.  JS adds .bg-cleared to:
+//   • Elements below the size thresholds (icon/sprite-sized, presumed safe UI)
+//   • Elements whose verdict is SAFE (reveal)
+//   • All elements when the extension is disabled or the domain is allowlisted
+//
+// Elements whose verdict is EXPLICIT/SUSPICIOUS keep the pre-blur and get the
+// permanent overlay wrapper on top.  Elements with no verdict yet (pending,
+// errored, timed-out) stay blurred — fail-closed.
+
+const PREBLUR_CLEARED_CLASS = "bg-cleared";
+
+// Below these thresholds the element is presumed-safe UI (icon, avatar, sprite).
+// Match MIN_MEDIA_OVERLAY_EDGE / MIN_MEDIA_OVERLAY_AREA from blurOverlay.ts so
+// the same elements that can't receive an overlay are also cleared immediately.
+const PREBLUR_MIN_EDGE = 56;   // px
+const PREBLUR_MIN_AREA = 8_000; // px²
+
+/** Remove pre-blur from a single element (reveal). */
+function clearPreblur(el: HTMLImageElement | HTMLVideoElement): void {
+  el.classList.add(PREBLUR_CLEARED_CLASS);
+}
+
+/**
+ * Re-apply pre-blur to a single element.
+ * Used on seek (new video position is unclassified) and on re-enable/sensitivity-change.
+ */
+function reblurElement(el: HTMLImageElement | HTMLVideoElement): void {
+  el.classList.remove(PREBLUR_CLEARED_CLASS);
+}
+
+/** Clear pre-blur on all img/video in the document (allowlist, disable). */
+function clearAllPreblur(): void {
+  document.querySelectorAll<HTMLImageElement | HTMLVideoElement>("img, video")
+    .forEach(clearPreblur);
+}
+
+/** Re-apply pre-blur to all img/video (re-enable, sensitivity change). */
+function reapplyPreblur(): void {
+  document.querySelectorAll<HTMLImageElement | HTMLVideoElement>("img, video")
+    .forEach(reblurElement);
+}
+
+/**
+ * True when the element is below the icon/sprite size threshold.
+ * Pre-blur is cleared immediately for these elements — no classification needed.
+ */
+function isTinyElement(el: HTMLImageElement | HTMLVideoElement): boolean {
+  const rect = el.getBoundingClientRect();
+  const w = rect.width  || (el instanceof HTMLImageElement ? el.naturalWidth  : 0);
+  const h = rect.height || (el instanceof HTMLImageElement ? el.naturalHeight : 0);
+  return w < PREBLUR_MIN_EDGE || h < PREBLUR_MIN_EDGE || w * h < PREBLUR_MIN_AREA;
+}
 
 // ─── Viewport priority ────────────────────────────────────────────────────────
 
@@ -118,6 +174,8 @@ const videoFrameSampler = new VideoFrameSampler(
   },
   (id) => pending.has(id),
   () => inViewport,
+  // seekReblur: re-apply pre-blur when the user seeks to an unclassified position.
+  (el) => reblurElement(el),
 );
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
@@ -134,6 +192,8 @@ async function bootstrap() {
 
   if (state.allowlist?.includes(location.hostname)) {
     console.log(`[BlurGuard] ${location.hostname} is allowlisted — scanning disabled`);
+    // Allowlisted domain: clear all pre-blur immediately so trusted sites are never blurry.
+    clearAllPreblur();
     return;
   }
 
@@ -141,6 +201,8 @@ async function bootstrap() {
     scanAndBlur();
     startScanning();
   } else {
+    // Protection is off: reveal all content, don't blur anything.
+    clearAllPreblur();
     stopScanning();
   }
 }
@@ -161,6 +223,8 @@ function handleMessage(message: BlurGuardMessage): void {
       state.sensitivity = message.payload as Sensitivity;
       // Drop pending requests — decisions arriving after this would use stale thresholds.
       pending.clear();
+      // Re-apply pre-blur to everything, then re-scan with new thresholds.
+      reapplyPreblur();
       removeAllOverlays();
       // Reset video samplers so blurred state from old sensitivity is cleared.
       videoFrameSampler.stopAll();
@@ -176,9 +240,13 @@ function handleMessage(message: BlurGuardMessage): void {
         console.log(`[BlurGuard] ${location.hostname} allowlisted — stopping`);
         stopScanning();
         removeAllOverlays();
+        // Allowlisted: reveal all content immediately.
+        clearAllPreblur();
       } else if (state.enabled && state.pausedUntil <= Date.now()) {
         // Domain was removed from the allowlist — resume scanning.
         console.log(`[BlurGuard] ${location.hostname} removed from allowlist — resuming`);
+        // Re-apply pre-blur and re-scan now that we're no longer trusted.
+        reapplyPreblur();
         document
           .querySelectorAll<HTMLElement>("img, video")
           .forEach((el) => scanned.delete(el));
@@ -198,18 +266,24 @@ async function handleProtectionToggled(enabled: boolean): Promise<void> {
   }
 
   if (state.pausedUntil > Date.now()) {
+    // Paused: reveal all content.
+    clearAllPreblur();
     removeAllOverlays();
     stopScanning();
     return;
   }
 
   if (state.enabled) {
+    // Re-enabled: re-apply pre-blur and re-scan everything.
+    reapplyPreblur();
     document
       .querySelectorAll<HTMLElement>("img, video")
       .forEach((el) => scanned.delete(el));
     scanAndBlur();
     startScanning();
   } else {
+    // Disabled: reveal all content.
+    clearAllPreblur();
     removeAllOverlays();
     stopScanning();
   }
@@ -233,7 +307,12 @@ function applyDecision(message: BlurDecisionMessage): void {
     `[BlurGuard] id=${id} inference=${inferenceMs}ms decode=${decodeMs}ms round-trip=${roundTripMs}ms verdict=${verdict.category} block=${verdict.shouldBlock}`
   );
 
-  if (!verdict.shouldBlock) return;
+  if (!verdict.shouldBlock) {
+    // SAFE verdict — clear pre-blur to reveal the element.
+    clearPreblur(el);
+    return;
+  }
+
   if (state.pausedUntil > Date.now() || !state.enabled) return;
 
   // Stop video sampler — the video is blurred; further sampling is pointless.
@@ -247,6 +326,10 @@ function applyDecision(message: BlurDecisionMessage): void {
     badgeLabel: canReveal ? "Blurred by BlurGuard" : "Blocked by BlurGuard",
   });
 
+  // The overlay's backdrop-filter provides visual blur; remove the pre-blur filter
+  // from the element to prevent double-blur artefacts.
+  if (wrapper) clearPreblur(el);
+
   const contextBlur = wrapper
     ? null
     : applyContextBlur(el, {
@@ -257,7 +340,15 @@ function applyDecision(message: BlurDecisionMessage): void {
           : "Blocked result by BlurGuard",
       });
 
-  if (!wrapper && !contextBlur) return;
+  // Context blur applies CSS filter to container children; clear the pre-blur
+  // on the element itself to avoid layering two blur filters.
+  if (contextBlur) clearPreblur(el);
+
+  if (!wrapper && !contextBlur) {
+    // Neither overlay could be applied (element too small, wrong DOM position, etc.).
+    // The pre-blur CSS from document_start remains as the fallback visual block.
+    return;
+  }
 
   sendToBackground({
     type: "REPORT_DETECTION",
@@ -305,7 +396,17 @@ async function scanElement(
   if (state.pausedUntil > Date.now() || !state.enabled) return;
   scanned.add(el);
 
+  // Immediately clear pre-blur for icon/sprite-sized elements — presumed-safe UI.
+  // Layout is known at document_idle (when this JS runs), so getBoundingClientRect
+  // is reliable. We do NOT classify these elements.
+  if (isTinyElement(el)) {
+    clearPreblur(el);
+    return;
+  }
+
   const ready = await waitForMediaReady(el, 10_000);
+  // If readiness times out or the element errored, we simply return here.
+  // The pre-blur CSS remains — fail-closed.
   if (!ready) return;
   if (state.pausedUntil > Date.now() || !state.enabled) return;
 
@@ -313,6 +414,7 @@ async function scanElement(
 
   if (!url) {
     // No src yet (e.g. lazy-load not yet triggered) — retry once.
+    // Pre-blur stays in place during the retry window.
     if (allowRetry && !retried.has(el)) {
       retried.add(el);
       scanned.delete(el);

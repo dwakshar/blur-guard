@@ -23,7 +23,7 @@ const Index = () => {
   }, [setEnabled]);
 
   return (
-    <div className="min-h-screen w-full bg-background p-2">
+    <div className="w-full bg-background select-none">
       <div className="w-[360px] max-w-full overflow-hidden rounded-[26px] bg-background shadow-[0_24px_60px_rgba(0,0,0,0.38)]">
         {loading ? (
           // Skeleton shimmer while fetching state from background

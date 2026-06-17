@@ -159,11 +159,11 @@ the verdict cache stores raw scores and re-derives the verdict per the new sensi
 
 Threshold tuning was run against a hand-labeled set of **15 images** (10 safe, 5 explicit) during Phase 2.4 development. These are the actual numbers — no rounding.
 
-| Sensitivity | Recall (explicit) | FP rate (safe) | Notes |
-|---|---|---|---|
-| Balanced | 4 / 5 — **0.80** | 0 / 10 — **0.00** | One known miss (see below) |
-| Strict | 5 / 5 — **1.00** | 1 / 10 — **0.10** | FP on high-Sexy fashion image |
-| Low | 3 / 5 — **0.60** | 0 / 10 — **0.00** | Conservative; misses moderate-confidence items |
+| Sensitivity | Recall (explicit) | FP rate (safe)    | Notes                                          |
+| ----------- | ----------------- | ----------------- | ---------------------------------------------- |
+| Balanced    | 4 / 5 — **0.80**  | 0 / 10 — **0.00** | One known miss (see below)                     |
+| Strict      | 5 / 5 — **1.00**  | 1 / 10 — **0.10** | FP on high-Sexy fashion image                  |
+| Low         | 3 / 5 — **0.60**  | 0 / 10 — **0.00** | Conservative; misses moderate-confidence items |
 
 **Known miss (nsfw-04):** A drawn/animated explicit image where the model returns `Drawing=0.968, Porn≈0, Hentai≈0`. The NSFW.js model has a hard ceiling on this content category — it outputs near-certain Drawing regardless of the image content. On-device recall for this category is ~0%. The v1.1 Sightengine backend closes this gap (its `native nudity-2.1` model handles drawn content correctly).
 
@@ -177,18 +177,18 @@ Full corpus evaluation against a statistically significant held-out set is a pla
 
 Measured from build artifacts and logged timing fields (`inferenceMs`, `decodeMs`, `queueWaitMs`, `latencyMs`). WebGL backend on a mid-range discrete GPU; WASM fallback numbers are ~3–5× higher.
 
-| Metric | Typical | Range | What it measures |
-|---|---|---|---|
-| Cold backend init (`backendMs`) | ~800 ms | 300–2 000 ms | `tf.setBackend("webgl")` + `tf.ready()` |
-| Cold model load (`loadMs`) | ~3 s | 1.5–8 s | `nsfwLoad()` reading ~38 MB shard files |
-| Warmup classify (`warmupMs`) | ~200 ms | 100–500 ms | 1×1 dummy canvas — primes GPU pipeline |
-| **Total cold load** (`totalColdLoadMs`) | **~4 s** | **2–10 s** | Sum of the three above; logged at startup |
-| First real inference (`latencyMs`) | ~5 s | 3–20 s | Cold start — dominated by model load |
-| Steady-state `inferenceMs` | ~80 ms | 20–150 ms | GPU work per image after model is warm |
-| Steady-state `latencyMs` | ~150 ms | 50–300 ms | Fetch + decode + queue wait + inference |
-| Cache hit `latencyMs` | ~3 ms | 1–5 ms | `chrome.storage.local` read + verdict re-derive |
-| 40-image burst, last item | ~3.2 s | 1–6 s | Serial queue — K images × inferenceMs |
-| 40-image burst, first visible item | ~150 ms | 50–300 ms | Viewport-priority queue jumps it to front |
+| Metric                                  | Typical  | Range        | What it measures                                |
+| --------------------------------------- | -------- | ------------ | ----------------------------------------------- |
+| Cold backend init (`backendMs`)         | ~800 ms  | 300–2 000 ms | `tf.setBackend("webgl")` + `tf.ready()`         |
+| Cold model load (`loadMs`)              | ~3 s     | 1.5–8 s      | `nsfwLoad()` reading ~38 MB shard files         |
+| Warmup classify (`warmupMs`)            | ~200 ms  | 100–500 ms   | 1×1 dummy canvas — primes GPU pipeline          |
+| **Total cold load** (`totalColdLoadMs`) | **~4 s** | **2–10 s**   | Sum of the three above; logged at startup       |
+| First real inference (`latencyMs`)      | ~5 s     | 3–20 s       | Cold start — dominated by model load            |
+| Steady-state `inferenceMs`              | ~80 ms   | 20–150 ms    | GPU work per image after model is warm          |
+| Steady-state `latencyMs`                | ~150 ms  | 50–300 ms    | Fetch + decode + queue wait + inference         |
+| Cache hit `latencyMs`                   | ~3 ms    | 1–5 ms       | `chrome.storage.local` read + verdict re-derive |
+| 40-image burst, last item               | ~3.2 s   | 1–6 s        | Serial queue — K images × inferenceMs           |
+| 40-image burst, first visible item      | ~150 ms  | 50–300 ms    | Viewport-priority queue jumps it to front       |
 
 To reproduce: load `dist/` unpacked → open a tab with many images → open SW DevTools → filter logs for `[BlurGuard offscreen]` and `[BlurGuard tfjs]`.
 
@@ -197,7 +197,7 @@ To reproduce: load `dist/` unpacked → open a tab with many images → open SW 
 ## Backend Comparison
 
 |               | `tfjs` (v1 — ships)    | `sightengine` (v1.1 — built, held) |
-|---------------|------------------------|------------------------------------|
+| ------------- | ---------------------- | ---------------------------------- |
 | Latency       | ~80 ms steady-state    | ~200 ms (network round-trip)       |
 | Accuracy      | NSFW.js recall 0.80+   | Sightengine native nudity-2.1      |
 | Privacy       | **100% on-device**     | Raw pixels sent to Sightengine     |
@@ -247,39 +247,50 @@ All four contexts share a single typed contract. No stringly-typed messages — 
 
 export type BlurGuardMessage =
   // Popup → background
-  | GetStateMessage | SetEnabledMessage | SetSensitivityMessage
-  | SetApiBackendMessage | SetApiConfigMessage | ResetStatsMessage
-  | AddAllowlistDomainMessage | RemoveAllowlistDomainMessage
+  | GetStateMessage
+  | SetEnabledMessage
+  | SetSensitivityMessage
+  | SetApiBackendMessage
+  | SetApiConfigMessage
+  | ResetStatsMessage
+  | AddAllowlistDomainMessage
+  | RemoveAllowlistDomainMessage
 
   // Content → background
-  | ClassifyRequestMessage | ClassifyPrioritizeMessage | ClassifyCancelMessage
+  | ClassifyRequestMessage
+  | ClassifyPrioritizeMessage
+  | ClassifyCancelMessage
   | ReportDetectionMessage
 
   // Background → popup (push — no polling)
   | StateUpdatedMessage
 
   // Background → all tabs (broadcast)
-  | ProtectionToggledMessage | SensitivityChangedMessage | AllowlistUpdatedMessage
+  | ProtectionToggledMessage
+  | SensitivityChangedMessage
+  | AllowlistUpdatedMessage
   | BlurDecisionMessage
 
   // Background → offscreen
-  | OffscreenPingMessage | OffscreenClassifyMessage
+  | OffscreenPingMessage
+  | OffscreenClassifyMessage
 
   // Offscreen → background
-  | OffscreenReadyMessage | ClassifyResultMessage;
+  | OffscreenReadyMessage
+  | ClassifyResultMessage;
 ```
 
-| Message | Direction | Payload |
-|---|---|---|
-| `CLASSIFY_REQUEST` | content → background | `{ id, url, kind, priority }` |
-| `CLASSIFY_PRIORITIZE` | content → background | `{ id }` — promotes item in queue |
-| `CLASSIFY_CANCEL` | content → background | `{ id }` — removes item from queue |
-| `OFFSCREEN_CLASSIFY` | background → offscreen | `{ id, url, kind, backend, sensitivity }` |
-| `BLUR_DECISION` | background → content | `{ id, verdict, inferenceMs, latencyMs }` |
-| `STATE_UPDATED` | background → popup | full `BlurGuardState` |
-| `PROTECTION_TOGGLED` | background → all tabs | `boolean` |
-| `SENSITIVITY_CHANGED` | background → all tabs | `Sensitivity` |
-| `ALLOWLIST_UPDATED` | background → all tabs | `string[]` |
+| Message               | Direction              | Payload                                   |
+| --------------------- | ---------------------- | ----------------------------------------- |
+| `CLASSIFY_REQUEST`    | content → background   | `{ id, url, kind, priority }`             |
+| `CLASSIFY_PRIORITIZE` | content → background   | `{ id }` — promotes item in queue         |
+| `CLASSIFY_CANCEL`     | content → background   | `{ id }` — removes item from queue        |
+| `OFFSCREEN_CLASSIFY`  | background → offscreen | `{ id, url, kind, backend, sensitivity }` |
+| `BLUR_DECISION`       | background → content   | `{ id, verdict, inferenceMs, latencyMs }` |
+| `STATE_UPDATED`       | background → popup     | full `BlurGuardState`                     |
+| `PROTECTION_TOGGLED`  | background → all tabs  | `boolean`                                 |
+| `SENSITIVITY_CHANGED` | background → all tabs  | `Sensitivity`                             |
+| `ALLOWLIST_UPDATED`   | background → all tabs  | `string[]`                                |
 
 ---
 
@@ -346,11 +357,11 @@ blur-guard/
 
 ### Requirements
 
-| | Minimum |
-|---|---|
-| Node.js | 18 |
-| npm | 9 |
-| Chrome | 120 |
+|         | Minimum |
+| ------- | ------- |
+| Node.js | 18      |
+| npm     | 9       |
+| Chrome  | 120     |
 
 ### Install and Build
 
@@ -408,15 +419,15 @@ BlurGuard does not collect analytics, telemetry, or usage data of any kind.
 
 In v1, all classification runs inside a hidden **offscreen document** that loads the NSFW.js model from the extension's own bundle. The offscreen document executes as the `chrome-extension://` origin with no outbound network access except to fetch the image being classified — and that fetch uses `credentials: "omit"`, so no session cookies are forwarded. **No pixels, no URLs, and no data of any kind leave your browser.**
 
-| | v1 (ships) | v1.1 (opt-in cloud) |
-|---|---|---|
-| Image pixels | Stay on device | Sent to Sightengine |
-| Image URLs | Stay on device | Sent to Sightengine |
-| Detection history | `chrome.storage.local` only | `chrome.storage.local` only |
-| Analytics / telemetry | None | None |
-| API credentials | N/A | `chrome.storage.local` only — never broadcast |
+|                       | v1 (ships)                  | v1.1 (opt-in cloud)                           |
+| --------------------- | --------------------------- | --------------------------------------------- |
+| Image pixels          | Stay on device              | Sent to Sightengine                           |
+| Image URLs            | Stay on device              | Sent to Sightengine                           |
+| Detection history     | `chrome.storage.local` only | `chrome.storage.local` only                   |
+| Analytics / telemetry | None                        | None                                          |
+| API credentials       | N/A                         | `chrome.storage.local` only — never broadcast |
 
-The cloud option in v1.1 will require explicit opt-in through the popup, accompanied by a verbatim privacy disclosure (visible today in `ApiBackendControl.tsx`): *"while enabled, the raw pixels of every image on pages you visit are sent to Sightengine's servers."*
+The cloud option in v1.1 will require explicit opt-in through the popup, accompanied by a verbatim privacy disclosure (visible today in `ApiBackendControl.tsx`): _"while enabled, the raw pixels of every image on pages you visit are sent to Sightengine's servers."_
 
 ---
 
@@ -436,19 +447,19 @@ The cloud option in v1.1 will require explicit opt-in through the popup, accompa
 
 ## Tech Stack
 
-| Layer | Choice | Reason |
-|---|---|---|
-| Extension platform | Chrome MV3 | Only supported format going forward |
-| Language | TypeScript 5.8 | Shared types across 4 isolated contexts |
-| UI framework | React 19 | Popup UI + composition |
-| Styling | Tailwind CSS v4 | Design tokens · utility classes · custom glow utilities |
-| Build tool | Vite 7 | Multi-entry rollup · flat output required by Chrome |
-| UI components | shadcn/ui | Accessible · unstyled · composable |
-| ML inference | NSFW.js 4.3 + TensorFlow.js 4.22 | On-device WebGL inference — no API key |
-| Model format | TF.js graph model (SavedModel) | Faster than layers format; ~38 MB shards |
-| State | chrome.storage.local | Survives service worker sleep/wake cycles |
-| Tests | Vitest 4.1 | 62 tests — queue, cache, allowlist, round-trip |
-| Icons | lucide-react | Tree-shakeable · consistent stroke width |
+| Layer              | Choice                           | Reason                                                  |
+| ------------------ | -------------------------------- | ------------------------------------------------------- |
+| Extension platform | Chrome MV3                       | Only supported format going forward                     |
+| Language           | TypeScript 5.8                   | Shared types across 4 isolated contexts                 |
+| UI framework       | React 19                         | Popup UI + composition                                  |
+| Styling            | Tailwind CSS v4                  | Design tokens · utility classes · custom glow utilities |
+| Build tool         | Vite 7                           | Multi-entry rollup · flat output required by Chrome     |
+| UI components      | shadcn/ui                        | Accessible · unstyled · composable                      |
+| ML inference       | NSFW.js 4.3 + TensorFlow.js 4.22 | On-device WebGL inference — no API key                  |
+| Model format       | TF.js graph model (SavedModel)   | Faster than layers format; ~38 MB shards                |
+| State              | chrome.storage.local             | Survives service worker sleep/wake cycles               |
+| Tests              | Vitest 4.1                       | 62 tests — queue, cache, allowlist, round-trip          |
+| Icons              | lucide-react                     | Tree-shakeable · consistent stroke width                |
 
 ---
 

@@ -134,7 +134,7 @@ async function dispatch(
 
 const MAX_QUEUE_DEPTH = 100;
 
-type SharedResult = { predictions: Prediction[]; inferenceMs: number };
+type SharedResult = { predictions?: Prediction[]; inferenceMs: number };
 
 let queueTail: Promise<void> = Promise.resolve();
 let queueDepth = 0;
@@ -174,12 +174,13 @@ async function runClassify(
     const response = await fetch(url, { credentials: "omit" });
     if (!response.ok) {
       console.warn("[BlurGuard offscreen] fetch non-OK:", response.status, url);
-      return { predictions: safeDefault(), decodeMs: 0, inferenceMs: 0, queueWaitMs: 0 };
+      // Fail-closed: no predictions → SW hits else{return} → no BLUR_DECISION → element stays blurred.
+      return { decodeMs: 0, inferenceMs: 0, queueWaitMs: 0 };
     }
     blob = await response.blob();
   } catch (err) {
     console.warn("[BlurGuard offscreen] fetch failed:", url, err);
-    return { predictions: safeDefault(), decodeMs: 0, inferenceMs: 0, queueWaitMs: 0 };
+    return { decodeMs: 0, inferenceMs: 0, queueWaitMs: 0 };
   }
 
   const fetchMs = Math.round(performance.now() - t0);
@@ -264,13 +265,15 @@ async function runTfjsClassify(
   } catch (err) {
     URL.revokeObjectURL(objectUrl);
     console.warn("[BlurGuard offscreen] image decode failed:", err, "type:", blob.type, "size:", blob.size);
-    return { predictions: safeDefault(), decodeMs: fetchMs, inferenceMs: 0, queueWaitMs: 0 };
+    // Fail-closed: decode error → no predictions → element stays blurred.
+    return { decodeMs: fetchMs, inferenceMs: 0, queueWaitMs: 0 };
   }
   // Safe to revoke immediately — the browser already decoded into GPU/CPU memory.
   // tf.browser.fromPixels(img) reads from the decoded pixel data, not the URL.
   URL.revokeObjectURL(objectUrl);
 
   // Coalesce: same URL already queued or running — share the classify() result.
+  // If the primary inference errored, shared.predictions is undefined → fail-closed for coalesced callers too.
   const inflight = urlInFlight.get(url);
   if (inflight) {
     const shared = await inflight;
@@ -280,7 +283,8 @@ async function runTfjsClassify(
 
   if (queueDepth >= MAX_QUEUE_DEPTH) {
     console.warn(`[BlurGuard offscreen] queue full (${MAX_QUEUE_DEPTH}), dropping classify`);
-    return { predictions: safeDefault(), decodeMs: fetchMs, inferenceMs: 0, queueWaitMs: 0 };
+    // Fail-closed: queue drop → no predictions → element stays blurred.
+    return { decodeMs: fetchMs, inferenceMs: 0, queueWaitMs: 0 };
   }
 
   let resolveShared!: (v: SharedResult) => void;
@@ -293,7 +297,8 @@ async function runTfjsClassify(
   return new Promise<ClassifyResult>((resolveOuter) => {
     queueTail = queueTail.then(async () => {
       const queueWaitMs = Math.round(performance.now() - tEnqueued);
-      let predictions: Prediction[] = safeDefault();
+      // undefined until a successful classify(); leaving undefined is fail-closed.
+      let predictions: Prediction[] | undefined;
       let inferenceMs = 0;
       try {
         const tInfer = performance.now();
@@ -302,6 +307,7 @@ async function runTfjsClassify(
         predictions = raw as Prediction[];
       } catch (err) {
         // Do NOT re-throw — a thrown error here would deadlock the queue chain.
+        // Fail-closed: predictions stays undefined → SW hits else{return} → element stays blurred.
         console.warn("[BlurGuard offscreen] classify() failed:", err);
       } finally {
         urlInFlight.delete(url);

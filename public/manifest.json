@@ -21,6 +21,11 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
+      "css": ["preblur.css"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["<all_urls>"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

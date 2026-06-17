@@ -71,15 +71,22 @@ export class VideoFrameSampler {
   private readonly isPending: (id: string) => boolean;
   /** Returns the set of elements currently near the viewport. */
   private readonly getInViewport: () => WeakSet<Element>;
+  /**
+   * Called when a 'seeked' event fires on a tracked video.
+   * Content script uses this to re-apply pre-blur (the new position is unclassified).
+   */
+  private readonly seekReblur?: (el: HTMLVideoElement) => void;
 
   constructor(
     sendFrame: SendFrameCallback,
     isPending: (id: string) => boolean,
     getInViewport: () => WeakSet<Element>,
+    seekReblur?: (el: HTMLVideoElement) => void,
   ) {
     this.sendFrame = sendFrame;
     this.isPending = isPending;
     this.getInViewport = getInViewport;
+    this.seekReblur = seekReblur;
   }
 
   get activeCount(): number {
@@ -117,24 +124,32 @@ export class VideoFrameSampler {
       this.doSample(el, entry);
     }, FRAME_SAMPLE_INTERVAL_MS);
 
-    // Seek and play events may jump to explicit content — sample immediately.
-    const onSeekOrPlay = () => {
+    // Seek: re-blur the video (new position is unclassified) then sample immediately.
+    const onSeeked = () => {
       const entry = this.samplers.get(el);
       if (!entry || entry.blurred) return;
-      // Don't fire if we just sent a frame (coalesce rapid events).
+      // Re-apply pre-blur unconditionally — the new position hasn't been classified yet.
+      this.seekReblur?.(el);
       if (entry.pendingFrameId && this.isPending(entry.pendingFrameId)) return;
       this.doSample(el, entry);
     };
-    el.addEventListener("seeked", onSeekOrPlay, { passive: true });
-    el.addEventListener("play",   onSeekOrPlay, { passive: true });
+    // Play: position unchanged, just sample to catch content that started playing.
+    const onPlay = () => {
+      const entry = this.samplers.get(el);
+      if (!entry || entry.blurred) return;
+      if (entry.pendingFrameId && this.isPending(entry.pendingFrameId)) return;
+      this.doSample(el, entry);
+    };
+    el.addEventListener("seeked", onSeeked, { passive: true });
+    el.addEventListener("play",   onPlay,   { passive: true });
 
     const entry: SamplerEntry = {
       intervalId,
       pendingFrameId: null,
       blurred: false,
       unlisten: () => {
-        el.removeEventListener("seeked", onSeekOrPlay);
-        el.removeEventListener("play",   onSeekOrPlay);
+        el.removeEventListener("seeked", onSeeked);
+        el.removeEventListener("play",   onPlay);
       },
     };
     this.samplers.set(el, entry);
