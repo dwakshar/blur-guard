@@ -29,6 +29,26 @@ import { assertNever } from "./types/messages";
 import { sightengineClassifyBlob } from "./lib/sightengine";
 import { CLOUD_BACKEND_ENABLED } from "./lib/featureFlags";
 
+// ── Model shard fetch interceptor ────────────────────────────────────────────
+// Opera's extension validator rejects .bin/.data files. Shards are stored as
+// base64-in-JSON (.json) so only .json files ship. This patches globalThis.fetch
+// once so TF.js weight-shard requests decode the wrapper transparently.
+function patchFetchForShards(modelBase: string): void {
+  const orig = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === "string" ? input
+      : input instanceof URL ? input.href
+      : (input as Request).url;
+    if (url.startsWith(modelBase) && url.includes("shard")) {
+      const resp = await orig(url, init);
+      const { data } = await resp.json() as { data: string };
+      const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+      return new Response(bytes, { status: 200, headers: { "Content-Type": "application/octet-stream" } });
+    }
+    return orig(input, init);
+  };
+}
+
 // ── Model init ────────────────────────────────────────────────────────────────
 // Runs in the background at offscreen-doc load time; NOT awaited at PING time.
 // tfjs OFFSCREEN_CLASSIFY awaits this before using nsfwModel.
@@ -60,6 +80,7 @@ async function initModel(): Promise<void> {
   const tLoad = performance.now();
   const modelUrl = chrome.runtime.getURL("models/nsfwjs/model.json");
   console.log("[BlurGuard offscreen] loading model:", modelUrl);
+  patchFetchForShards(chrome.runtime.getURL("models/nsfwjs/"));
   nsfwModel = await nsfwLoad(modelUrl, { type: "graph" });
   console.log(`[BlurGuard offscreen] model loaded ✓  loadMs=${Math.round(performance.now() - tLoad)}`);
 

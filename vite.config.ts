@@ -29,6 +29,7 @@ export default defineConfig({
         background: resolve(__dirname, "src/background.ts"),
         content: resolve(__dirname, "src/content.ts"),
         offscreen: resolve(__dirname, "offscreen.html"),
+        diagnostic: resolve(__dirname, "diagnostic.html"), // THROWAWAY — remove after measurement
       },
 
       output: {

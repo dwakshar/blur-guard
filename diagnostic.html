@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>BlurGuard Diagnostic Harness</title>
+  <style>
+    body { font-family: monospace; margin: 20px; max-width: 1500px; background: #fafafa; }
+    h1 { color: #c00; margin-bottom: 4px; }
+    h2 { margin-top: 20px; margin-bottom: 6px; }
+    .banner {
+      background: #fff3cd; border: 1px solid #e6a817; border-radius: 4px;
+      padding: 8px 14px; margin: 8px 0 16px;
+    }
+    .controls { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+    label { font-weight: bold; }
+    select, button { font-family: monospace; font-size: 13px; }
+    button { padding: 8px 22px; cursor: pointer; background: #1a56db; color: #fff; border: none; border-radius: 4px; }
+    button:disabled { background: #999; cursor: not-allowed; }
+    #progress { font-size: 12px; color: #555; min-height: 1.4em; margin: 4px 0; }
+    #log {
+      white-space: pre-wrap; background: #1e1e1e; color: #d4d4d4;
+      padding: 12px; height: 180px; overflow-y: auto; font-size: 12px;
+      border-radius: 4px; margin-bottom: 8px;
+    }
+    #stats table { border-collapse: collapse; margin: 6px 0; }
+    #stats td, #stats th { border: 1px solid #bbb; padding: 4px 10px; }
+    #stats th { background: #eee; }
+    .resume-bullet {
+      background: #e8f5e9; border: 1px solid #4caf50; border-radius: 4px;
+      padding: 10px 14px; margin: 10px 0; font-size: 14px;
+    }
+    tr.miss  { background: #ffcccc; }
+    tr.fp    { background: #fff3cd; }
+    tr.tp    { background: #d4edda; }
+    tr.tn    { background: #f5f5f5; }
+    #perImage { font-size: 11px; }
+    #perImage td, #perImage th { padding: 3px 6px; }
+  </style>
+</head>
+<body>
+  <h1>BlurGuard Diagnostic Harness</h1>
+  <div class="banner">
+    ⚠️ <strong>THROWAWAY</strong> — not part of the production extension. Remove after measurements.
+    Do <em>not</em> commit your test corpus images.
+  </div>
+
+  <p>
+    Select your corpus folder (parent that contains <code>explicit/</code> and <code>safe/</code> subfolders).
+    Results are computed entirely on-device using the same WebGL model as the production extension.
+  </p>
+
+  <div class="controls">
+    <div>
+      <label for="folderInput">Corpus folder:</label><br/>
+      <input type="file" id="folderInput" webkitdirectory multiple />
+    </div>
+    <div>
+      <label for="sensitivity">Sensitivity:</label><br/>
+      <select id="sensitivity">
+        <option value="balanced" selected>balanced (explicitThreshold = 0.45, default)</option>
+        <option value="strict">strict (explicitThreshold = 0.35)</option>
+        <option value="low">low (explicitThreshold = 0.60)</option>
+      </select>
+    </div>
+    <div style="padding-top:18px">
+      <button id="runBtn">▶ Run Harness</button>
+    </div>
+  </div>
+
+  <div id="progress"></div>
+  <pre id="log">Click "Run Harness" to load the model and begin.</pre>
+
+  <div id="stats"></div>
+
+  <script type="module" src="/src/diagnostic.ts"></script>
+</body>
+</html>
